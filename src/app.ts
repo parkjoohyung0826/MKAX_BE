@@ -2,6 +2,7 @@ import express from "express";
 import itemRoutes from "./routes/item.routes";
 import jobRoutes from "./routes/job.routes";
 import educationRoutes from "./routes/education.routes";
+import careerRoutes from "./routes/career.routes";
 import cors from "cors";
 import { errorHandler } from "./middlewares/errorHandler";
 
@@ -19,6 +20,7 @@ app.get("/health", (_, res) => {
 app.use("/items", itemRoutes);
 app.use("/api/recommend", jobRoutes);
 app.use("/api/recommend", educationRoutes);
+app.use("/api/recommend", careerRoutes);
 
 app.use(errorHandler);
 
