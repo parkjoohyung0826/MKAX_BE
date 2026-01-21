@@ -29,7 +29,6 @@ reason은 1~2문장으로 간결하게.
   const result = await model.generateContent([systemPrompt, userPrompt]);
 
   const text = result.response.text();
-  console.log("Gemini raw response:", text);
 
   const cleaned = text
     .trim()
@@ -38,7 +37,7 @@ reason은 1~2문장으로 간결하게.
     .replace(/```$/i, "")
     .trim();
 
-  console.log("🧹 Cleaned response:", cleaned);
+  console.log("response:", cleaned);
 
   let parsed: any;
   try {
