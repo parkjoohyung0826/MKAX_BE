@@ -4,6 +4,7 @@ import jobRoutes from "./routes/job.routes";
 import educationRoutes from "./routes/education.routes";
 import careerRoutes from "./routes/career.routes";
 import activityRoutes from "./routes/activity.routes";
+import certificationRoutes from "./routes/certification.routes";
 import cors from "cors";
 import { errorHandler } from "./middlewares/errorHandler";
 
@@ -23,6 +24,8 @@ app.use("/api/recommend", jobRoutes);
 app.use("/api/recommend", educationRoutes);
 app.use("/api/recommend", careerRoutes);
 app.use("/api/recommend", activityRoutes);
+app.use("/api/recommend", certificationRoutes);
+
 
 app.use(errorHandler);
 
