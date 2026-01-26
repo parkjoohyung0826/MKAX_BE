@@ -3,7 +3,7 @@ import { z } from "zod";
 import { recommendActivityFromUserInput } from "../services/activity.service";
 
 const ActivitySchema = z.object({
-  userInput: z.string().min(5, "userInput은 최소 5자 이상 입력해주세요."),
+  userInput: z.string(),
 });
 
 export async function recommendActivityController(req: Request, res: Response) {

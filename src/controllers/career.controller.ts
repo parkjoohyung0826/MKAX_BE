@@ -3,7 +3,7 @@ import { z } from "zod";
 import { recommendCareerFromInput } from "../services/career.service";
 
 const CareerSchema = z.object({
-  userInput: z.string().min(10, "경력 설명은 최소 10자 이상 입력해주세요."),
+  userInput: z.string(),
 });
 
 export async function recommendCareerController(req: Request, res: Response) {

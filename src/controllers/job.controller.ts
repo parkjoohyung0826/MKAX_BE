@@ -3,7 +3,7 @@ import { z } from "zod";
 import { recommendJobFromDescription } from "../services/job.service";
 
 const RecommendSchema = z.object({
-  description: z.string().min(5, "description은 최소 5자 이상 입력해주세요."),
+  description: z.string(),
 });
 
 export async function recommendJobController(

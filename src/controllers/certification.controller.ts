@@ -3,7 +3,7 @@ import { z } from "zod";
 import { recommendCertificationFromInput } from "../services/certification.service";
 
 const RecommendCertificationSchema = z.object({
-  userInput: z.string().min(3, "userInput은 최소 3자 이상 입력해주세요."),
+  userInput: z.string(),
 });
 
 export async function recommendCertificationController(req: Request, res: Response) {

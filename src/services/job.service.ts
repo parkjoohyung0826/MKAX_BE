@@ -12,6 +12,14 @@ export async function recommendJobFromDescription(
   console.log("Input description:", description);
 
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const trimmedDescription = description.trim();
+  if (trimmedDescription.length < 5) {
+    return {
+      recommendedJob: "",
+      missingInfo: "경험/직무 관련 정보를 5글자 이상 입력해주세요.",
+      isComplete: false,
+    };
+  }
 
   const systemPrompt = `
 너는 채용/직무 추천 도우미야.
@@ -26,6 +34,8 @@ missingInfo: 아래 필수 항목 중 입력에서 확인되지 않는 항목이
   사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
   부족한 항목이 없다면 빈 문자열("").
 필수 항목: recommendedJob.
+입력 길이가 5자 미만이면 missingInfo에 "경험/직무 관련 정보를 5글자 이상 입력해주세요."를 출력하고
+  recommendedJob은 반드시 빈 문자열("")로 둔다.
 입력이 직무 추천과 무관하거나 추출할 정보가 전혀 없으면,
   missingInfo에 올바른 경험/직무 관련 정보를 요청하는 문장을 작성하고
   recommendedJob은 반드시 빈 문자열("")로 둔다.

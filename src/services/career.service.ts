@@ -10,6 +10,14 @@ export async function recommendCareerFromInput(
   userInput: string
 ): Promise<CareerResult> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const trimmedInput = userInput.trim();
+  if (trimmedInput.length < 5) {
+    return {
+      fullDescription: "",
+      missingInfo: "경력 정보를 5글자 이상 입력해주세요.",
+      isComplete: false,
+    };
+  }
 
   const systemPrompt = `
 너는 이력서 작성을 도와주는 AI야.
@@ -32,6 +40,8 @@ export async function recommendCareerFromInput(
   사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
   부족한 항목이 없다면 빈 문자열("").
 - 필수 항목: companyName, period, mainTask, leavingReason.
+- 입력 길이가 5자 미만이면 missingInfo에 "경력 정보를 5글자 이상 입력해주세요."를 출력하고
+  fullDescription은 반드시 빈 문자열("")로 둔다.
 - 입력이 경력과 무관하거나 추출할 정보가 전혀 없으면,
   missingInfo에 올바른 경력 정보를 요청하는 문장을 작성하고
   fullDescription은 반드시 빈 문자열("")로 둔다.
