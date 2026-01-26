@@ -47,19 +47,9 @@ export async function recommendEducationFromDescription(
 
   const userPrompt = `description: ${description}`;
 
-  let text = "";
-  try {
-    console.log("Calling Gemini API...");
-    const result = await model.generateContent([systemPrompt, userPrompt]);
-    text = result.response.text();
-  } catch (err) {
-    console.error("[recommendEducationFromDescription] Gemini error:", err);
-    return {
-      fullDescription: "",
-      missingInfo: "",
-      isComplete: false,
-    };
-  }
+  console.log("Calling Gemini API...");
+  const result = await model.generateContent([systemPrompt, userPrompt]);
+  const text = result.response.text();
 
   const cleaned = text
     .trim()

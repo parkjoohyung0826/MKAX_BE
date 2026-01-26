@@ -2,9 +2,8 @@ import { genAI, GEMINI_MODEL } from "../common/gemini";
 
 export type RecommendActivityResult = {
   fullDescription: string;
-  period: string;
-  courseName: string;
-  institution: string;
+  missingInfo: string;
+  isComplete: boolean;
 };
 
 function stripCodeFence(text: string) {
@@ -27,9 +26,8 @@ export async function recommendActivityFromUserInput(
 
 {
   "fullDescription": string,
-  "period": string,
-  "courseName": string,
-  "institution": string
+  "missingInfo": string,
+  "isComplete": boolean
 }
 
 규칙:
@@ -39,6 +37,14 @@ export async function recommendActivityFromUserInput(
 - courseName: 활동/교육명 + (핵심역할/분야) 정도로 요약
 - institution: 주최/기관/학교/재단/회사 등 추정 가능하면 채우고, 불명확하면 "미상"으로
 - 내용은 과장하지 말고, 사용자 입력에 근거해서만 작성
+- missingInfo: 아래 필수 항목 중 입력에서 확인되지 않는 항목이 있다면,
+  사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
+  부족한 항목이 없다면 빈 문자열("").
+- 필수 항목: courseName, period, institution.
+- 입력이 활동/교육과 무관하거나 추출할 정보가 전혀 없으면,
+  missingInfo에 올바른 활동/교육 정보를 요청하는 문장을 작성하고
+  fullDescription은 반드시 빈 문자열("")로 둔다.
+- isComplete: 필수 항목이 모두 충족되어 추가 입력이 필요 없으면 true, 아니면 false.
 `;
 
   const prompt = `userInput: ${userInput}`;
@@ -53,19 +59,23 @@ export async function recommendActivityFromUserInput(
   try {
     parsed = JSON.parse(cleaned);
   } catch {
-    // 모델이 형식 깨뜨렸을 때 fallback
     return {
-      fullDescription: "활동 정보를 다시 생성해주세요",
-      period: "",
-      courseName: "",
-      institution: "미상",
+      fullDescription: "",
+      missingInfo: "",
+      isComplete: false,
     };
   }
 
+  const missingInfo = String(parsed.missingInfo ?? "");
+  const isComplete =
+    typeof parsed.isComplete === "boolean"
+      ? parsed.isComplete
+      : missingInfo.trim().length === 0;
+
   return {
-    fullDescription: String(parsed.fullDescription ?? ""),
-    period: String(parsed.period ?? ""),
-    courseName: String(parsed.courseName ?? ""),
-    institution: String(parsed.institution ?? "미상"),
+    fullDescription:
+      missingInfo.trim().length > 0 ? "" : String(parsed.fullDescription ?? ""),
+    missingInfo,
+    isComplete,
   };
 }

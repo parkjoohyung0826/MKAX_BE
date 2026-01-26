@@ -2,9 +2,8 @@ import { genAI, GEMINI_MODEL } from "../common/gemini";
 
 export type RecommendCertificationResult = {
   fullDescription: string;
-  period: string;
-  certificationName: string;
-  institution: string;
+  missingInfo: string;
+  isComplete: boolean;
 };
 
 export async function recommendCertificationFromInput(
@@ -19,9 +18,8 @@ export async function recommendCertificationFromInput(
 반드시 아래 JSON 형식으로만 출력해. (추가 텍스트 절대 금지)
 {
   "fullDescription": string,
-  "period": string,
-  "certificationName": string,
-  "institution": string
+  "missingInfo": string,
+  "isComplete": boolean
 }
 
 규칙:
@@ -31,6 +29,14 @@ export async function recommendCertificationFromInput(
 - period: "YYYY.MM" 또는 "YYYY.MM ~ YYYY.MM" (정확히 없으면 "미상")
 - certificationName: 자격증명/시험명/어학시험명
 - institution: 발급기관/주관기관 (없으면 "미상")
+- missingInfo: 아래 필수 항목 중 입력에서 확인되지 않는 항목이 있다면,
+  사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
+  부족한 항목이 없다면 빈 문자열("").
+- 필수 항목: certificationName, period, institution.
+- 입력이 자격증/어학과 무관하거나 추출할 정보가 전혀 없으면,
+  missingInfo에 올바른 자격증/어학 정보를 요청하는 문장을 작성하고
+  fullDescription은 반드시 빈 문자열("")로 둔다.
+- isComplete: 필수 항목이 모두 충족되어 추가 입력이 필요 없으면 true, 아니면 false.
 `;
 
   const result = await model.generateContent([systemPrompt, `userInput: ${userInput}`]);
@@ -46,18 +52,22 @@ export async function recommendCertificationFromInput(
   try {
     const parsed = JSON.parse(cleaned);
 
+    const missingInfo = String(parsed.missingInfo ?? "");
+    const isComplete =
+      typeof parsed.isComplete === "boolean"
+        ? parsed.isComplete
+        : missingInfo.trim().length === 0;
     return {
-      fullDescription: String(parsed.fullDescription ?? ""),
-      period: String(parsed.period ?? "미상"),
-      certificationName: String(parsed.certificationName ?? ""),
-      institution: String(parsed.institution ?? "미상"),
+      fullDescription:
+        missingInfo.trim().length > 0 ? "" : String(parsed.fullDescription ?? ""),
+      missingInfo,
+      isComplete,
     };
   } catch {
     return {
-      fullDescription: userInput.trim(),
-      period: "미상",
-      certificationName: "정리 필요",
-      institution: "미상",
+      fullDescription: "",
+      missingInfo: "",
+      isComplete: false,
     };
   }
 }
