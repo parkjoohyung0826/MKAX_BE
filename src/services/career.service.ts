@@ -42,6 +42,7 @@ export async function recommendCareerFromInput(
 - 필수 항목: companyName, period, mainTask, leavingReason.
 - 입력 길이가 5자 미만이면 missingInfo에 "경력 정보를 5글자 이상 입력해주세요."를 출력하고
   fullDescription은 반드시 빈 문자열("")로 둔다.
+- 필수 항목이 일부 부족하더라도, 입력에 포함된 정보만으로 fullDescription을 최대한 작성한다.
 - 입력이 경력과 무관하거나 추출할 정보가 전혀 없으면,
   missingInfo에 올바른 경력 정보를 요청하는 문장을 작성하고
   fullDescription은 반드시 빈 문자열("")로 둔다.
@@ -70,8 +71,7 @@ export async function recommendCareerFromInput(
         ? parsed.isComplete
         : missingInfo.trim().length === 0;
     return {
-      fullDescription:
-        missingInfo.trim().length > 0 ? "" : String(parsed.fullDescription ?? ""),
+      fullDescription: String(parsed.fullDescription ?? ""),
       missingInfo,
       isComplete,
     };
