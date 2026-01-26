@@ -1,12 +1,9 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
 
 export type RecommendEducationResult = {
-  schoolName: string;
-  major: string;
-  period: string;
-  graduationStatus: string;
-  details: string;
   fullDescription: string;
+  missingInfo: string;
+  isComplete: boolean;
 };
 
 export async function recommendEducationFromDescription(
@@ -22,12 +19,9 @@ export async function recommendEducationFromDescription(
 
 반드시 아래 JSON 형식으로만 출력해. (추가 텍스트/설명 절대 금지)
 {
-  "schoolName": string,
-  "major": string,
-  "period": string,
-  "graduationStatus": string,
-  "details": string,
-  "fullDescription": string
+  "fullDescription": string,
+  "missingInfo": string,
+  "isComplete": boolean
 }
 
 규칙:
@@ -40,15 +34,32 @@ export async function recommendEducationFromDescription(
 - fullDescription: 이력서에 그대로 붙여넣을 수 있는 포맷으로 정리.
   예:
   "OO대학교 컴퓨터공학과 졸업 (2018.03 ~ 2024.02)\\n- 주요 수강 과목: ...\\n- 졸업 프로젝트: ..."
+- missingInfo: 아래 필수 항목 중 입력에서 확인되지 않는 항목이 있다면,
+  사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
+  부족한 항목이 없다면 빈 문자열("").
+- 필수 항목: schoolName, major, period, graduationStatus, details.
+- 입력이 학력과 무관하거나 추출할 정보가 전혀 없으면,
+  missingInfo에 올바른 학력 정보를 요청하는 문장을 작성하고
+  fullDescription은 반드시 빈 문자열("")로 둔다.
+- isComplete: 필수 항목이 모두 충족되어 추가 입력이 필요 없으면 true, 아니면 false.
 - 정보가 없으면 빈 문자열("")로 둬.
   `;
 
   const userPrompt = `description: ${description}`;
 
-  console.log("Calling Gemini API...");
-  const result = await model.generateContent([systemPrompt, userPrompt]);
-
-  const text = result.response.text();
+  let text = "";
+  try {
+    console.log("Calling Gemini API...");
+    const result = await model.generateContent([systemPrompt, userPrompt]);
+    text = result.response.text();
+  } catch (err) {
+    console.error("[recommendEducationFromDescription] Gemini error:", err);
+    return {
+      fullDescription: "",
+      missingInfo: "",
+      isComplete: false,
+    };
+  }
 
   const cleaned = text
     .trim()
@@ -66,21 +77,22 @@ export async function recommendEducationFromDescription(
     console.error("❌ JSON parse failed:", err);
     // fallback
     return {
-      schoolName: "",
-      major: "",
-      period: "",
-      graduationStatus: "",
-      details: "",
       fullDescription: "",
+      missingInfo: "",
+      isComplete: false,
     };
   }
 
+  const missingInfo = String(parsed.missingInfo ?? "");
+  const isComplete =
+    typeof parsed.isComplete === "boolean"
+      ? parsed.isComplete
+      : missingInfo.trim().length === 0;
+
   return {
-    schoolName: String(parsed.schoolName ?? ""),
-    major: String(parsed.major ?? ""),
-    period: String(parsed.period ?? ""),
-    graduationStatus: String(parsed.graduationStatus ?? ""),
-    details: String(parsed.details ?? ""),
-    fullDescription: String(parsed.fullDescription ?? ""),
+    fullDescription:
+      missingInfo.trim().length > 0 ? "" : String(parsed.fullDescription ?? ""),
+    missingInfo,
+    isComplete,
   };
 }
