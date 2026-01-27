@@ -7,6 +7,7 @@ import activityRoutes from "./routes/activity.routes";
 import certificationRoutes from "./routes/certification.routes";
 import coverLetterRoutes from "./routes/coverLetter.routes";
 import profileRoutes from "./routes/profile.routes";
+import resumeFormatRoutes from "./routes/resumeFormat.routes";
 
 import cors from "cors";
 import { errorHandler } from "./middlewares/errorHandler";
@@ -18,10 +19,6 @@ app.use(errorHandler);
 app.use(cors());
 app.use(express.json());
 
-app.get("/health", (_, res) => {
-  res.json({ status: "ok" });
-});
-
 app.use("/items", itemRoutes);
 app.use("/api/recommend", jobRoutes);
 app.use("/api/recommend", educationRoutes);
@@ -29,6 +26,7 @@ app.use("/api/recommend", careerRoutes);
 app.use("/api/recommend", activityRoutes);
 app.use("/api/recommend", certificationRoutes);
 app.use("/api/recommend", profileRoutes);
+app.use("/api/recommend", resumeFormatRoutes);
 app.use("/api/cover-letter", coverLetterRoutes);
 
 
