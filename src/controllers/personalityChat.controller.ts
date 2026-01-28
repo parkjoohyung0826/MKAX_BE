@@ -21,7 +21,13 @@ export async function personalityChatController(
   }
 
   try {
-    const result = await chatPersonality(parsed.data);
+    if (!req.sessionId) {
+      return res.status(400).json({ message: "sessionId가 필요합니다." });
+    }
+    const result = await chatPersonality({
+      ...parsed.data,
+      sessionId: req.sessionId,
+    });
     return res.json(result);
   } catch (err) {
     console.error("🔥 Error in personalityChatController");

@@ -12,16 +12,22 @@ import growthProcessChatRoutes from "./routes/growthProcessChat.routes";
 import personalityChatRoutes from "./routes/personalityChat.routes";
 import careerStrengthChatRoutes from "./routes/careerStrengthChat.routes";
 import motivationAspirationChatRoutes from "./routes/motivationAspirationChat.routes";
+import coverLetterChatRoutes from "./routes/coverLetterChat.routes";
 
 import cors from "cors";
 import { errorHandler } from "./middlewares/errorHandler";
+import { anonymousSession } from "./middlewares/anonymousSession";
 
 const app = express();
 
 app.use(errorHandler);
 
-app.use(cors());
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(",").map((value) => value.trim())
+  : true;
+app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json());
+app.use(anonymousSession);
 
 app.use("/items", itemRoutes);
 app.use("/api/recommend", jobRoutes);
@@ -36,6 +42,7 @@ app.use("/api/cover-letter", growthProcessChatRoutes);
 app.use("/api/cover-letter", personalityChatRoutes);
 app.use("/api/cover-letter", careerStrengthChatRoutes);
 app.use("/api/cover-letter", motivationAspirationChatRoutes);
+app.use("/api/cover-letter", coverLetterChatRoutes);
 
 
 app.use(errorHandler);

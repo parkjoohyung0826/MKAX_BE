@@ -1,8 +1,11 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { CoverLetterSection } from "@prisma/client";
+import { getChatState, saveChatState } from "../repositories/coverLetterChat.repository";
 
 export type MotivationAspirationChatInput = {
   userInput: string;
   currentSummary?: string;
+  sessionId: string;
 };
 
 export type MotivationAspirationChatResult = {
@@ -20,6 +23,8 @@ export async function chatMotivationAspiration(
   input: MotivationAspirationChatInput
 ): Promise<MotivationAspirationChatResult> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const stored = await getChatState(input.sessionId, CoverLetterSection.MOTIVATION_ASPIRATION);
+  const baseSummary = normalize(input.currentSummary) || normalize(stored?.summary);
 
   const systemPrompt = `
 너는 자기소개서 문항 중 "지원 동기 및 포부"를 완성하기 위한 대화형 코치다.
@@ -53,7 +58,7 @@ export async function chatMotivationAspiration(
 
   const userPrompt = JSON.stringify({
     userInput: input.userInput,
-    currentSummary: input.currentSummary ?? "",
+    currentSummary: baseSummary,
   });
 
   const result = await model.generateContent([systemPrompt, userPrompt]);
@@ -70,18 +75,32 @@ export async function chatMotivationAspiration(
   try {
     parsed = JSON.parse(cleaned);
   } catch {
+    const fallbackSummary = baseSummary;
+    await saveChatState(input.sessionId, CoverLetterSection.MOTIVATION_ASPIRATION, {
+      summary: fallbackSummary,
+      finalDraft: stored?.finalDraft ?? "",
+      isComplete: stored?.isComplete ?? false,
+    });
     return {
       nextQuestion: "지원 동기를 형성한 개인 경험을 구체적으로 알려주세요.",
-      summary: normalize(input.currentSummary),
+      summary: fallbackSummary,
       finalDraft: "",
       isComplete: false,
     };
   }
 
-  return {
+  const nextResult = {
     nextQuestion: normalize(parsed.nextQuestion),
-    summary: normalize(parsed.summary) || normalize(input.currentSummary),
+    summary: normalize(parsed.summary) || baseSummary,
     finalDraft: normalize(parsed.finalDraft),
     isComplete: Boolean(parsed.isComplete),
   };
+
+  await saveChatState(input.sessionId, CoverLetterSection.MOTIVATION_ASPIRATION, {
+    summary: nextResult.summary,
+    finalDraft: nextResult.finalDraft,
+    isComplete: nextResult.isComplete,
+  });
+
+  return nextResult;
 }

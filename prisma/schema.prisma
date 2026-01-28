@@ -18,3 +18,31 @@ model Item {
   title     String
   createdAt DateTime @default(now())
 }
+
+enum CoverLetterSection {
+  GROWTH_PROCESS
+  PERSONALITY
+  CAREER_STRENGTH
+  MOTIVATION_ASPIRATION
+}
+
+model ChatSession {
+  id        String      @id @default(uuid())
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  states    ChatState[]
+}
+
+model ChatState {
+  id         Int                 @id @default(autoincrement())
+  sessionId  String
+  section    CoverLetterSection
+  summary    String              @default("")
+  finalDraft String              @default("")
+  isComplete Boolean             @default(false)
+  updatedAt  DateTime            @updatedAt
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, section])
+}

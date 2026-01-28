@@ -1,8 +1,11 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { CoverLetterSection } from "@prisma/client";
+import { getChatState, saveChatState } from "../repositories/coverLetterChat.repository";
 
 export type GrowthProcessChatInput = {
   userInput: string;
   currentSummary?: string;
+  sessionId: string;
 };
 
 export type GrowthProcessChatResult = {
@@ -20,6 +23,8 @@ export async function chatGrowthProcess(
   input: GrowthProcessChatInput
 ): Promise<GrowthProcessChatResult> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const stored = await getChatState(input.sessionId, CoverLetterSection.GROWTH_PROCESS);
+  const baseSummary = normalize(input.currentSummary) || normalize(stored?.summary);
 
   const systemPrompt = `
 너는 자기소개서 문항 중 "성장과정"을 완성하기 위한 대화형 코치다.
@@ -53,7 +58,7 @@ export async function chatGrowthProcess(
 
   const userPrompt = JSON.stringify({
     userInput: input.userInput,
-    currentSummary: input.currentSummary ?? "",
+    currentSummary: baseSummary,
   });
 
   const result = await model.generateContent([systemPrompt, userPrompt]);
@@ -70,18 +75,32 @@ export async function chatGrowthProcess(
   try {
     parsed = JSON.parse(cleaned);
   } catch {
+    const fallbackSummary = baseSummary;
+    await saveChatState(input.sessionId, CoverLetterSection.GROWTH_PROCESS, {
+      summary: fallbackSummary,
+      finalDraft: stored?.finalDraft ?? "",
+      isComplete: stored?.isComplete ?? false,
+    });
     return {
       nextQuestion: "성장과정에서 중요한 경험 한 가지를 구체적으로 알려주세요.",
-      summary: normalize(input.currentSummary),
+      summary: fallbackSummary,
       finalDraft: "",
       isComplete: false,
     };
   }
 
-  return {
+  const nextResult = {
     nextQuestion: normalize(parsed.nextQuestion),
-    summary: normalize(parsed.summary) || normalize(input.currentSummary),
+    summary: normalize(parsed.summary) || baseSummary,
     finalDraft: normalize(parsed.finalDraft),
     isComplete: Boolean(parsed.isComplete),
   };
+
+  await saveChatState(input.sessionId, CoverLetterSection.GROWTH_PROCESS, {
+    summary: nextResult.summary,
+    finalDraft: nextResult.finalDraft,
+    isComplete: nextResult.isComplete,
+  });
+
+  return nextResult;
 }
