@@ -26,11 +26,21 @@ enum CoverLetterSection {
   MOTIVATION_ASPIRATION
 }
 
+enum RecommendSection {
+  PROFILE
+  JOB
+  EDUCATION
+  CAREER
+  ACTIVITY
+  CERTIFICATION
+}
+
 model ChatSession {
   id        String      @id @default(uuid())
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   states    ChatState[]
+  recommendStates RecommendState[]
 }
 
 model ChatState {
@@ -41,6 +51,19 @@ model ChatState {
   finalDraft String              @default("")
   isComplete Boolean             @default(false)
   updatedAt  DateTime            @updatedAt
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, section])
+}
+
+model RecommendState {
+  id               Int              @id @default(autoincrement())
+  sessionId        String
+  section          RecommendSection
+  accumulatedInput String           @default("")
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 

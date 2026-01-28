@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { recommendCertificationFromInput } from "../services/certification.service";
+import { RecommendSection } from "@prisma/client";
+import {
+  getRecommendState,
+  saveRecommendState,
+} from "../repositories/recommendChat.repository";
 
 const RecommendCertificationSchema = z.object({
   userInput: z.string(),
@@ -16,8 +21,23 @@ export async function recommendCertificationController(req: Request, res: Respon
   }
 
   try {
+    if (!req.sessionId) {
+      return res.status(400).json({ message: "sessionId가 필요합니다." });
+    }
     const { userInput } = parsed.data;
-    const data = await recommendCertificationFromInput(userInput);
+    const stored = await getRecommendState(
+      req.sessionId,
+      RecommendSection.CERTIFICATION
+    );
+    const mergedInput = [stored?.accumulatedInput, userInput]
+      .filter((value) => typeof value === "string" && value.trim().length > 0)
+      .join("\n");
+    const data = await recommendCertificationFromInput(mergedInput);
+    await saveRecommendState(
+      req.sessionId,
+      RecommendSection.CERTIFICATION,
+      mergedInput
+    );
     return res.json(data);
   } catch (e) {
     console.error("[recommendCertificationController]", e);

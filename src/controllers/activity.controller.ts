@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { recommendActivityFromUserInput } from "../services/activity.service";
+import { RecommendSection } from "@prisma/client";
+import {
+  getRecommendState,
+  saveRecommendState,
+} from "../repositories/recommendChat.repository";
 
 const ActivitySchema = z.object({
   userInput: z.string(),
@@ -17,8 +22,19 @@ export async function recommendActivityController(req: Request, res: Response) {
   }
 
   try {
+    if (!req.sessionId) {
+      return res.status(400).json({ message: "sessionId가 필요합니다." });
+    }
     const { userInput } = parsed.data;
-    const data = await recommendActivityFromUserInput(userInput);
+    const stored = await getRecommendState(
+      req.sessionId,
+      RecommendSection.ACTIVITY
+    );
+    const mergedInput = [stored?.accumulatedInput, userInput]
+      .filter((value) => typeof value === "string" && value.trim().length > 0)
+      .join("\n");
+    const data = await recommendActivityFromUserInput(mergedInput);
+    await saveRecommendState(req.sessionId, RecommendSection.ACTIVITY, mergedInput);
 
     // 로그 확인하고 싶으면 여기서 찍는 게 제일 확실함
     console.log("[POST /api/recommend/activity] ok");
