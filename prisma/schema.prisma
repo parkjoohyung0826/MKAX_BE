@@ -69,3 +69,10 @@ model RecommendState {
 
   @@unique([sessionId, section])
 }
+
+model AccessCode {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  payload   Json
+  createdAt DateTime @default(now())
+}

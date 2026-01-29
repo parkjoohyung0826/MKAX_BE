@@ -14,6 +14,7 @@ import personalityChatRoutes from "./routes/personalityChat.routes";
 import careerStrengthChatRoutes from "./routes/careerStrengthChat.routes";
 import motivationAspirationChatRoutes from "./routes/motivationAspirationChat.routes";
 import coverLetterChatRoutes from "./routes/coverLetterChat.routes";
+import archiveRoutes from "./routes/archive.routes";
 
 import cors from "cors";
 import { errorHandler } from "./middlewares/errorHandler";
@@ -45,6 +46,7 @@ app.use("/api/cover-letter", personalityChatRoutes);
 app.use("/api/cover-letter", careerStrengthChatRoutes);
 app.use("/api/cover-letter", motivationAspirationChatRoutes);
 app.use("/api/cover-letter", coverLetterChatRoutes);
+app.use("/api/archive", archiveRoutes);
 
 
 app.use(errorHandler);

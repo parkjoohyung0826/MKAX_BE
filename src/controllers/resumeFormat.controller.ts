@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { formatResumeData } from "../services/resumeFormat.service";
+import { randomInt } from "crypto";
+import { createAccessCode, findAccessCode } from "../repositories/accessCode.repository";
+import { getCoverLetterState } from "../repositories/archive.repository";
 
 const ResumeFormatSchema = z.object({
   name: z.string(),
@@ -32,8 +35,32 @@ export async function formatResumeController(
   }
 
   try {
+    if (!req.sessionId) {
+      return res.status(400).json({ message: "sessionId가 필요합니다." });
+    }
     const data = await formatResumeData(parsed.data);
-    return res.json(data);
+    const coverLetter = await getCoverLetterState(req.sessionId);
+    const payload = {
+      sessionId: req.sessionId,
+      resume: data,
+      coverLetter,
+      issuedAt: new Date().toISOString(),
+    };
+
+    let code = String(randomInt(0, 1000000)).padStart(6, "0");
+    for (let i = 0; i < 5; i += 1) {
+      const exists = await findAccessCode(code);
+      if (!exists) break;
+      code = String(randomInt(0, 1000000)).padStart(6, "0");
+    }
+
+    await createAccessCode(code, payload);
+
+    return res.json({
+      resume: data,
+      coverLetter,
+      code,
+    });
   } catch (err) {
     console.error("🔥 Error in formatResumeController");
     next(err);
