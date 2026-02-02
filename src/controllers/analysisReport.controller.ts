@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import {
   analyzeResumeAndCoverLetter,
   CoverLetterData,
@@ -89,8 +90,14 @@ export async function analysisReportController(
       parsed.data.coverLetter
     );
     console.log("🧾 Analysis report result:", report);
-    const payload = {
-      ...(record.payload as Record<string, unknown>),
+    const basePayload =
+      record.payload &&
+      typeof record.payload === "object" &&
+      !Array.isArray(record.payload)
+        ? record.payload
+        : {};
+    const payload: Prisma.InputJsonValue = {
+      ...(basePayload as Record<string, unknown>),
       analysisReport: report,
       analysisReportIssuedAt: new Date().toISOString(),
     };
