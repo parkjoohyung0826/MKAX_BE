@@ -6,19 +6,19 @@ import { createAccessCode, findAccessCode } from "../repositories/accessCode.rep
 import { getCoverLetterState } from "../repositories/archive.repository";
 
 const ResumeFormatSchema = z.object({
-  name: z.string(),
-  englishName: z.string(),
-  dateOfBirth: z.string(),
-  email: z.string(),
-  phoneNumber: z.string(),
-  emergencyContact: z.string(),
-  address: z.string(),
-  photo: z.string(),
-  desiredJob: z.string(),
-  education: z.string(),
-  workExperience: z.string(),
-  coreCompetencies: z.string(),
-  certifications: z.string(),
+  name: z.string().max(100),
+  englishName: z.string().max(100),
+  dateOfBirth: z.string().max(50),
+  email: z.string().max(200),
+  phoneNumber: z.string().max(50),
+  emergencyContact: z.string().max(50),
+  address: z.string().max(500),
+  photo: z.string().max(1000),
+  desiredJob: z.string().max(200),
+  education: z.string().max(20000),
+  workExperience: z.string().max(20000),
+  coreCompetencies: z.string().max(20000),
+  certifications: z.string().max(20000),
 });
 
 export async function formatResumeController(

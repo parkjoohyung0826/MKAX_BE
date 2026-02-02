@@ -29,7 +29,7 @@ const corsOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map((value) => value.trim())
   : true;
 app.use(cors({ origin: corsOrigins, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: "3mb" }));
 app.use(anonymousSession);
 
 app.use("/items", itemRoutes);
