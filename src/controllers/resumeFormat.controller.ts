@@ -19,6 +19,14 @@ const ResumeFormatSchema = z.object({
   workExperience: z.string().max(20000),
   coreCompetencies: z.string().max(20000),
   certifications: z.string().max(20000),
+  coverLetter: z
+    .object({
+      growthProcess: z.string().max(20000),
+      strengthsAndWeaknesses: z.string().max(20000),
+      keyExperience: z.string().max(20000),
+      motivation: z.string().max(20000),
+    })
+    .optional(),
 });
 
 export async function formatResumeController(
@@ -39,7 +47,9 @@ export async function formatResumeController(
       return res.status(400).json({ message: "sessionId가 필요합니다." });
     }
     const data = await formatResumeData(parsed.data);
-    const coverLetter = await getCoverLetterState(req.sessionId);
+    const coverLetter =
+      parsed.data.coverLetter ??
+      (await getCoverLetterState(req.sessionId));
     const payload = {
       sessionId: req.sessionId,
       resume: data,
