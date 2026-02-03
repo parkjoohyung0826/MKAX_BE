@@ -26,3 +26,7 @@ export async function updateAccessCode(
     data: { payload },
   });
 }
+
+export async function deleteAccessCode(code: string) {
+  return prisma.accessCode.delete({ where: { code } });
+}
