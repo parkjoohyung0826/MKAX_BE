@@ -81,6 +81,14 @@ export type AnalysisReportResult = {
   };
 };
 
+const SCORE_BREAKDOWN_ITEMS = [
+  { item: "직무 적합성", maxScore: 25 },
+  { item: "경험의 구체성", maxScore: 20 },
+  { item: "문장 표현력", maxScore: 20 },
+  { item: "구조 및 가독성", maxScore: 15 },
+  { item: "문서 완성도", maxScore: 20 },
+] as const;
+
 function normalize(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -294,7 +302,12 @@ export async function analyzeResumeAndCoverLetter(
 
 규칙:
 - 총점은 0~100.
-- scoreBreakdown 항목들의 maxScore 합은 100이 되도록 구성.
+- scoreBreakdown은 아래 항목을 정확히 사용하고, maxScore도 고정값을 그대로 사용한다.
+  - 직무 적합성 (25)
+  - 경험의 구체성 (20)
+  - 문장 표현력 (20)
+  - 구조 및 가독성 (15)
+  - 문서 완성도 (20)
 - scoreBreakdownTotal.score는 항목 점수 합계.
 - scoreText는 "{score} / {maxScore}" 형식.
 - totalScoreText는 "{totalScore} / 100점" 형식.
@@ -302,6 +315,7 @@ export async function analyzeResumeAndCoverLetter(
 - sentenceFeedback는 실제 문장을 인용하여 개선 가이드를 제공한다.
 - sentenceFeedback의 deductionItems는 반드시 scoreBreakdown.item 중에서만 선택한다.
 - improvementGuide는 경험/역량 보완 가이드와 실행 로드맵을 제공한다.
+- 위 JSON의 모든 필드를 반드시 포함해 출력한다. 누락 금지.
 - 입력에 없는 사실을 추정하거나 과장하지 않는다.
 `;
 
@@ -326,30 +340,32 @@ export async function analyzeResumeAndCoverLetter(
     return fallbackReport();
   }
 
-  const scoreBreakdown: ScoreBreakdownItem[] = Array.isArray(parsed.scoreBreakdown)
-    ? parsed.scoreBreakdown.map((item: any) => {
-        const score = toNumber(item?.score, 0);
-        const maxScore = toNumber(item?.maxScore, 0);
-        return {
-          item: normalize(item?.item),
-          score: clamp(score, 0, Math.max(0, maxScore)),
-          maxScore: Math.max(0, maxScore),
-          scoreText: buildScoreText(
-            clamp(score, 0, Math.max(0, maxScore)),
-            Math.max(0, maxScore)
-          ),
-          deductionReason: normalize(item?.deductionReason),
-        };
-      })
+  const parsedBreakdown = Array.isArray(parsed.scoreBreakdown)
+    ? parsed.scoreBreakdown
     : [];
+  const scoreBreakdown: ScoreBreakdownItem[] = SCORE_BREAKDOWN_ITEMS.map(
+    (fixedItem) => {
+      const match = parsedBreakdown.find(
+        (item: any) => normalize(item?.item) === fixedItem.item
+      );
+      const score = toNumber(match?.score, 0);
+      const maxScore = fixedItem.maxScore;
+      const clampedScore = clamp(score, 0, maxScore);
+      return {
+        item: fixedItem.item,
+        score: clampedScore,
+        maxScore,
+        scoreText: buildScoreText(clampedScore, maxScore),
+        deductionReason: normalize(match?.deductionReason),
+      };
+    }
+  );
 
   const sumScore = scoreBreakdown.reduce((acc, item) => acc + item.score, 0);
-  const sumMaxScore = scoreBreakdown.reduce(
+  const maxScoreTotal = SCORE_BREAKDOWN_ITEMS.reduce(
     (acc, item) => acc + item.maxScore,
     0
   );
-
-  const maxScoreTotal = sumMaxScore > 0 ? sumMaxScore : 100;
   const totalScore = clamp(sumScore, 0, maxScoreTotal);
 
   return {
