@@ -103,9 +103,13 @@ export async function analysisReportController(
       ...(basePayload as Record<string, unknown>),
       analysisReport: report,
       analysisReportIssuedAt: new Date().toISOString(),
+      analysisReportSourceType: "json",
     };
     await updateAccessCode(parsed.data.code, payload);
-    return res.status(200).json(report);
+    return res.status(200).json({
+      ...report,
+      analysisReportSourceType: "json",
+    });
   } catch (err) {
     console.error("🔥 Error in analysisReportController");
     return next(err);
@@ -151,7 +155,7 @@ export async function analysisReportPdfController(
       });
     }
 
-    const { report, sources } = await analyzeReportFromPdfFiles(
+    const { report, sources, sourceUrls } = await analyzeReportFromPdfFiles(
       resumeFile,
       coverLetterFile
     );
@@ -168,10 +172,17 @@ export async function analysisReportPdfController(
       analysisReport: report,
       analysisReportIssuedAt: new Date().toISOString(),
       analysisReportSources: sources,
+      analysisReportSourceUrls: sourceUrls,
+      analysisReportSourceType: "pdf",
     };
     await updateAccessCode(code, payload);
 
-    return res.status(200).json({ code, report });
+    return res.status(200).json({
+      code,
+      report,
+      analysisReportSourceType: "pdf",
+      ...sourceUrls,
+    });
   } catch (err) {
     console.error("🔥 Error in analysisReportPdfController");
     return next(err);

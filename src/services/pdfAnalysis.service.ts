@@ -40,6 +40,16 @@ async function uploadPdfToGcs(
   return { bucket: bucketName, key };
 }
 
+async function getSignedUrl(bucket: string, key: string) {
+  const expiresInMs = Number(process.env.GCS_SIGNED_URL_TTL_MS ?? "3600000");
+  const [url] = await storage.bucket(bucket).file(key).getSignedUrl({
+    version: "v4",
+    action: "read",
+    expires: Date.now() + expiresInMs,
+  });
+  return url;
+}
+
 async function extractTextFromPdf(buffer: Buffer, mimeType: string) {
   const projectId = requireEnv(GCP_PROJECT, "GOOGLE_CLOUD_PROJECT");
   const location = requireEnv(GCP_LOCATION, "GOOGLE_CLOUD_LOCATION");
@@ -99,11 +109,22 @@ export async function analyzeReportFromPdfFiles(
     coverLetterText
   );
 
+  const resumeUrl =
+    resumeGcs ? await getSignedUrl(resumeGcs.bucket, resumeGcs.key) : undefined;
+  const coverLetterUrl =
+    coverLetterGcs
+      ? await getSignedUrl(coverLetterGcs.bucket, coverLetterGcs.key)
+      : undefined;
+
   return {
     report,
     sources: {
       resume: resumeGcs ?? undefined,
       coverLetter: coverLetterGcs ?? undefined,
+    },
+    sourceUrls: {
+      resumeUrl,
+      coverLetterUrl,
     },
   };
 }
