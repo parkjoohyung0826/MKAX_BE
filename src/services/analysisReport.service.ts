@@ -212,6 +212,23 @@ export async function analyzeResumeAndCoverLetter(
   resume: ResumeFormatResult,
   coverLetter: CoverLetterData
 ): Promise<AnalysisReportResult> {
+  const inputPayload = `resume: ${JSON.stringify(resume)}\ncoverLetter: ${JSON.stringify(
+    coverLetter
+  )}`;
+  return runAnalysisReport(inputPayload);
+}
+
+export async function analyzeResumeAndCoverLetterFromText(
+  resumeText: string,
+  coverLetterText: string
+): Promise<AnalysisReportResult> {
+  const inputPayload = `resumeText: ${resumeText}\ncoverLetterText: ${coverLetterText}`;
+  return runAnalysisReport(inputPayload);
+}
+
+async function runAnalysisReport(
+  inputPayload: string
+): Promise<AnalysisReportResult> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const systemPrompt = `
@@ -319,9 +336,7 @@ export async function analyzeResumeAndCoverLetter(
 - 입력에 없는 사실을 추정하거나 과장하지 않는다.
 `;
 
-  const userPrompt = `resume: ${JSON.stringify(resume)}\ncoverLetter: ${JSON.stringify(
-    coverLetter
-  )}`;
+  const userPrompt = inputPayload;
 
   const result = await model.generateContent([systemPrompt, userPrompt]);
   const text = result.response.text();
