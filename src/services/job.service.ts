@@ -33,6 +33,7 @@ export async function recommendJobFromDescription(
 missingInfo: 아래 필수 항목 중 입력에서 확인되지 않는 항목이 있다면,
   사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
   부족한 항목이 없다면 빈 문자열("").
+missingInfo는 친절한 대화체의 한 문장으로 작성하고, 가능하면 사용자가 입력한 표현을 일부 반영한다.
 필수 항목: recommendedJob.
 입력 길이가 5자 미만이면 missingInfo에 "경험/직무 관련 정보를 5글자 이상 입력해주세요."를 출력하고
   recommendedJob은 반드시 빈 문자열("")로 둔다.
