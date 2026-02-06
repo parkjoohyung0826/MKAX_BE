@@ -189,7 +189,8 @@ export async function recommendProfileFromDescription(
     }
     if (item.validate && !item.validate(value)) {
       resultData[item.key] = "";
-      resultData.missingInfo = llmMissingInfo || item.labelInvalid ?? item.labelMissing;
+      resultData.missingInfo =
+        llmMissingInfo || (item.labelInvalid ?? item.labelMissing);
       resultData.isComplete = false;
       return resultData;
     }
