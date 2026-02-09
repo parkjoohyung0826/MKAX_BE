@@ -18,6 +18,28 @@ export class CoverLetterService {
         isComplete: false,
       };
     }
+    if (!isLikelyMeaningful(trimmedInput)) {
+      return {
+        fullDescription: "",
+        section,
+        missingInfo: "올바른 내용을 입력해주세요.",
+        isComplete: false,
+      };
+    }
+    const relevance = await evaluateSectionRelevance(
+      section,
+      trimmedInput,
+      desiredJob
+    );
+    if (!relevance.isRelevant) {
+      return {
+        fullDescription: "",
+        section,
+        missingInfo:
+          relevance.missingInfo || "문항에 맞는 내용을 입력해주세요.",
+        isComplete: false,
+      };
+    }
 
     const prompt = buildPrompt(section, userInput, desiredJob);
 
@@ -33,6 +55,66 @@ export class CoverLetterService {
       missingInfo: fullDescription.length === 0 ? "올바른 내용을 입력해주세요." : "",
       isComplete: fullDescription.length > 0,
     };
+  }
+}
+
+function isLikelyMeaningful(value: string) {
+  const cleaned = value.replace(/\s+/g, "");
+  const meaningfulChars = cleaned.match(/[A-Za-z0-9가-힣]/g) ?? [];
+  if (meaningfulChars.length < 5) return false;
+  if (meaningfulChars.length / cleaned.length < 0.5) return false;
+  const uniqueChars = new Set(meaningfulChars).size;
+  if (uniqueChars < Math.min(3, meaningfulChars.length)) return false;
+  return true;
+}
+
+async function evaluateSectionRelevance(
+  section: CoverLetterSection,
+  userInput: string,
+  desiredJob?: string
+): Promise<{ isRelevant: boolean; missingInfo: string }> {
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const jobLine = desiredJob ? `지원 직무: ${desiredJob}` : "지원 직무: 미상";
+  const systemPrompt = `
+너는 자기소개서 문항 적합성을 판단하는 검사자다.
+아래 입력이 해당 문항의 주제와 관련 있는지 판단해 JSON으로만 출력한다.
+
+출력 형식:
+{
+  "isRelevant": boolean,
+  "missingInfo": string
+}
+
+규칙:
+- 내용이 문항 주제와 명확히 관련되면 true.
+- 무관한 일상/잡담/의미 없는 텍스트이면 false.
+- 판단이 애매하면 false.
+- isRelevant가 false일 때 missingInfo는 구체적으로 어떤 내용을 추가해야 하는지 안내하는 한 문장으로 작성한다.
+- isRelevant가 true일 때 missingInfo는 빈 문자열("").
+`;
+  const userPrompt = `
+문항: ${section}
+${jobLine}
+사용자 입력:
+"""${userInput}"""
+`.trim();
+
+  try {
+    const result = await model.generateContent([systemPrompt, userPrompt]);
+    const text = result?.response?.text?.() ?? "";
+    const cleaned = text
+      .trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      isRelevant: Boolean(parsed?.isRelevant),
+      missingInfo: String(parsed?.missingInfo ?? ""),
+    };
+  } catch {
+    return { isRelevant: true, missingInfo: "" };
   }
 }
 
