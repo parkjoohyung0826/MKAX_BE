@@ -18,7 +18,7 @@ export const uploadPdfFields = multer({
   storage,
   fileFilter: pdfFileFilter,
   limits: {
-    fileSize: 30 * 1024 * 1024, // 30MB per file
+    fileSize: 100 * 1024 * 1024, 
   },
 }).fields([
   { name: "resume", maxCount: 1 },

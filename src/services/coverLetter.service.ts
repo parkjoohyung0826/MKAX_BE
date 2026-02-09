@@ -9,16 +9,29 @@ type DraftRequest = {
 
 export class CoverLetterService {
   static async generateDraft({ section, userInput, desiredJob }: DraftRequest) {
+    const trimmedInput = userInput.trim();
+    if (trimmedInput.length < 5) {
+      return {
+        fullDescription: "",
+        section,
+        missingInfo: "자기소개서 내용을 5글자 이상 입력해주세요.",
+        isComplete: false,
+      };
+    }
+
     const prompt = buildPrompt(section, userInput, desiredJob);
 
     const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     const result = await model.generateContent(prompt);
 
     const text = result?.response?.text?.() ?? "";
+    const fullDescription = text.trim();
 
     return {
-      fullDescription: text.trim(),
+      fullDescription,
       section,
+      missingInfo: fullDescription.length === 0 ? "올바른 내용을 입력해주세요." : "",
+      isComplete: fullDescription.length > 0,
     };
   }
 }
