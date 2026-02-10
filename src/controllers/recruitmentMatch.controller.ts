@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { findAccessCode } from "../repositories/accessCode.repository";
+import { findAccessCode, updateAccessCode } from "../repositories/accessCode.repository";
+import { Prisma } from "@prisma/client";
 import { matchRecruitments } from "../services/recruitmentMatch.service";
 import { ResumeFormatResult } from "../services/resumeFormat.service";
 
@@ -29,9 +30,9 @@ export async function matchRecruitmentsController(
       return res.status(404).json({ message: "인증번호가 유효하지 않습니다." });
     }
 
-    const payload = record.payload as Record<string, unknown>;
-    const resume = payload.resume as ResumeFormatResult | undefined;
-    const coverLetter = payload.coverLetter as Record<string, string> | undefined;
+    const storedPayload = record.payload as Record<string, unknown>;
+    const resume = storedPayload.resume as ResumeFormatResult | undefined;
+    const coverLetter = storedPayload.coverLetter as Record<string, string> | undefined;
 
     if (!resume) {
       return res.status(400).json({ message: "이력서 데이터가 없습니다." });
@@ -41,6 +42,19 @@ export async function matchRecruitmentsController(
     const limit = parsed.data.limit ?? (offset === 0 ? 10 : 5);
 
     const result = await matchRecruitments(resume, coverLetter, offset, limit);
+
+    const basePayload =
+      record.payload &&
+      typeof record.payload === "object" &&
+      !Array.isArray(record.payload)
+        ? record.payload
+        : {};
+    const updatedPayload: Prisma.InputJsonValue = {
+      ...(basePayload as Record<string, unknown>),
+      recruitmentMatch: result,
+      recruitmentMatchIssuedAt: new Date().toISOString(),
+    };
+    await updateAccessCode(parsed.data.code, updatedPayload);
 
     return res.status(200).json(result);
   } catch (err) {

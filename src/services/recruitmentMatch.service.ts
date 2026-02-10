@@ -19,6 +19,7 @@ type RecruitmentItem = {
   recrutNope?: number;
   hireTypeNmLst?: string;
   ncsCdNmLst?: string;
+  workRgnLst?: string;
   workRgnNmLst?: string;
   aplyQlfcCn?: string;
   prefCn?: string;
