@@ -149,34 +149,45 @@ function buildProfileSummary(resume: ResumeFormatResult, coverLetter?: CoverLett
   return truncateText(summary, 2000);
 }
 
-async function scoreRecruitment(
-  job: RecruitmentItem,
+async function scoreRecruitmentsBatch(
+  jobs: RecruitmentItem[],
   profileSummary: string
-): Promise<{ matchScore: number; matchReason: string }> {
+): Promise<Record<number, { matchScore: number; matchReason: string }>> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   const systemPrompt = `
 너는 채용 공고와 지원자 정보를 비교해 적합도를 평가하는 AI다.
 아래 정보를 보고 JSON 형식으로만 출력해.
 
 {
-  "matchScore": number,
-  "matchReason": string
+  "items": [
+    {
+      "recrutPblntSn": number,
+      "matchScore": number,
+      "matchReason": string
+    }
+  ]
 }
 
 규칙:
 - matchScore는 0~100 사이 정수.
 - matchReason은 1~2문장으로 간단히.
 - 과장하지 말고 입력 정보에 근거해서 판단.
+- 출력 항목은 입력된 공고 리스트에 대해서만 작성한다.
 `;
 
-  const userPrompt = `지원자 정보:\n${profileSummary}\n\n공고 정보:\n기관: ${normalize(
-    job.instNm
-  )}\n제목: ${normalize(job.recrutPbancTtl)}\n채용구분: ${normalize(
-    job.recrutSeNm
-  )}\n지역: ${normalize(job.workRgnNmLst)}\n지원자격: ${truncateText(
-    normalize(job.aplyQlfcCn),
-    500
-  )}\n우대사항: ${truncateText(normalize(job.prefCn), 300)}\n`;
+  const jobSummaries = jobs.map((job) => ({
+    recrutPblntSn: job.recrutPblntSn,
+    instNm: normalize(job.instNm),
+    title: normalize(job.recrutPbancTtl),
+    recruitType: normalize(job.recrutSeNm),
+    region: normalize(job.workRgnNmLst),
+    qualification: truncateText(normalize(job.aplyQlfcCn), 300),
+    preference: truncateText(normalize(job.prefCn), 200),
+  }));
+
+  const userPrompt = `지원자 정보:\n${profileSummary}\n\n공고 목록(JSON):\n${JSON.stringify(
+    jobSummaries
+  )}`;
 
   try {
     const result = await model.generateContent([systemPrompt, userPrompt]);
@@ -188,16 +199,23 @@ async function scoreRecruitment(
       .replace(/```$/i, "")
       .trim();
     const parsed = JSON.parse(cleaned);
-    const score = Number(parsed?.matchScore);
-    return {
-      matchScore: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0,
-      matchReason: normalize(parsed?.matchReason),
-    };
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+    const resultMap: Record<number, { matchScore: number; matchReason: string }> =
+      {};
+    for (const item of items) {
+      const sn = Number(item?.recrutPblntSn);
+      if (!Number.isFinite(sn)) continue;
+      const score = Number(item?.matchScore);
+      resultMap[sn] = {
+        matchScore: Number.isFinite(score)
+          ? Math.max(0, Math.min(100, score))
+          : 0,
+        matchReason: normalize(item?.matchReason),
+      };
+    }
+    return resultMap;
   } catch {
-    return {
-      matchScore: 0,
-      matchReason: "지원자 정보와 공고 간 연관성을 판단하기 어렵습니다.",
-    };
+    return {};
   }
 }
 
@@ -245,15 +263,20 @@ export async function matchRecruitments(
 
   const profileSummary = buildProfileSummary(resume, coverLetter);
 
-  const scored: ScoredRecruitment[] = [];
-  for (const item of filtered) {
-    const score = await scoreRecruitment(item, profileSummary);
-    scored.push({
+  const maxBatch = Number(process.env.RECRUITMENT_MATCH_BATCH_LIMIT ?? "20");
+  const batchLimit = Number.isFinite(maxBatch) && maxBatch > 0 ? maxBatch : 20;
+  const batchTargets = filtered.slice(0, batchLimit);
+  const scoreMap = await scoreRecruitmentsBatch(batchTargets, profileSummary);
+  const scored: ScoredRecruitment[] = filtered.map((item) => {
+    const score = scoreMap[item.recrutPblntSn];
+    return {
       ...item,
-      matchScore: score.matchScore,
-      matchReason: score.matchReason,
-    });
-  }
+      matchScore: score?.matchScore ?? 0,
+      matchReason:
+        score?.matchReason ??
+        "지원자 정보와 공고 간 연관성을 판단하기 어렵습니다.",
+    };
+  });
 
   scored.sort((a, b) => b.matchScore - a.matchScore);
   const slice = scored.slice(offset, offset + limit);
