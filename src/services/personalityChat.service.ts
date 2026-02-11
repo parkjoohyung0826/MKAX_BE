@@ -62,6 +62,11 @@ export async function chatPersonality(
   });
 
   const result = await model.generateContent([systemPrompt, userPrompt]);
+  try {
+    console.log("[Open API raw response]", JSON.stringify(result, null, 2));
+  } catch {
+    console.log("[Open API raw response]", result);
+  }
   const text = result.response.text();
 
   const cleaned = text

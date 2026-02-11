@@ -7,8 +7,6 @@ import { ResumeFormatResult } from "../services/resumeFormat.service";
 
 const MatchSchema = z.object({
   code: z.string().min(4),
-  offset: z.number().int().min(0).optional(),
-  limit: z.number().int().min(1).max(20).optional(),
 });
 
 export async function matchRecruitmentsController(
@@ -38,10 +36,7 @@ export async function matchRecruitmentsController(
       return res.status(400).json({ message: "이력서 데이터가 없습니다." });
     }
 
-    const offset = parsed.data.offset ?? 0;
-    const limit = parsed.data.limit ?? (offset === 0 ? 10 : 5);
-
-    const result = await matchRecruitments(resume, coverLetter, offset, limit);
+    const result = await matchRecruitments(resume, coverLetter, 0, 10);
 
     const basePayload =
       record.payload &&

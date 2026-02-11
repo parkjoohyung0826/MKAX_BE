@@ -8,22 +8,57 @@ type CoverLetterInput = {
   motivation?: string;
 };
 
+type RecruitmentFile = {
+  recrutAtchFileNo?: number;
+  sortNo?: number;
+  atchFileNm?: string;
+  atchFileType?: string;
+  url?: string;
+};
+
+type RecruitmentStep = {
+  recrutStepSn?: number;
+  recrutPblntSn?: number;
+  recrutPbancTtl?: string;
+  recrutNope?: number | null;
+  aplyNope?: number | null;
+  cmpttRt?: number | null;
+  rsnOcrnYmd?: string | null;
+  sortNo?: number;
+  minStepSn?: number;
+  maxStepSn?: number;
+};
+
 type RecruitmentItem = {
   recrutPblntSn: number;
+  pblntInstCd?: string;
+  pbadmsStdInstCd?: string;
   instNm?: string;
+  ncsCdLst?: string;
   recrutPbancTtl?: string;
+  recrutSe?: string;
   recrutSeNm?: string;
+  prefCondCn?: string;
   pbancBgngYmd?: string;
   pbancEndYmd?: string;
+  acbgCondLst?: string;
   acbgCondNmLst?: string;
   recrutNope?: number;
+  hireTypeLst?: string;
   hireTypeNmLst?: string;
   ncsCdNmLst?: string;
   workRgnLst?: string;
   workRgnNmLst?: string;
+  replmprYn?: string;
   aplyQlfcCn?: string;
+  disqlfcRsn?: string;
   prefCn?: string;
   scrnprcdrMthdExpln?: string;
+  nonatchRsn?: string | null;
+  ongoingYn?: string | null;
+  decimalDay?: number;
+  files?: RecruitmentFile[];
+  steps?: RecruitmentStep[];
   srcUrl?: string;
 };
 
@@ -32,8 +67,11 @@ type ScoredRecruitment = RecruitmentItem & {
   matchReason: string;
 };
 
-export type RecruitmentMatchItem = Omit<ScoredRecruitment, "ncsCdNmLst"> & {
+export type RecruitmentMatchItem = ScoredRecruitment & {
   ncsCdNmList: string[];
+  hireTypeNmList: string[];
+  workRgnNmList: string[];
+  acbgCondNmList: string[];
 };
 
 const REGION_KEYWORDS = [
@@ -64,6 +102,13 @@ function normalize(value: unknown): string {
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength)}...`;
+}
+
+function splitCsv(value: unknown) {
+  return normalize(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function extractRegion(address: string) {
@@ -283,10 +328,10 @@ export async function matchRecruitments(
   const slice = scored.slice(offset, offset + limit);
   const items: RecruitmentMatchItem[] = slice.map((item) => ({
     ...item,
-    ncsCdNmList: normalize(item.ncsCdNmLst)
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
+    ncsCdNmList: splitCsv(item.ncsCdNmLst),
+    hireTypeNmList: splitCsv(item.hireTypeNmLst),
+    workRgnNmList: splitCsv(item.workRgnNmLst),
+    acbgCondNmList: splitCsv(item.acbgCondNmLst),
   }));
 
   return {
