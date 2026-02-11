@@ -341,7 +341,11 @@ export async function matchRecruitments(
   offset = 0,
   limit = 10
 ) {
-  const rawList = await fetchRecruitments(1, 50);
+  const safeOffset = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 50) : 10;
+  const minRows = safeOffset + safeLimit;
+  const numOfRows = Math.max(50, Math.min(minRows, 500));
+  const rawList = await fetchRecruitments(1, numOfRows);
 
   const filtered = rawList.filter((item) => {
     return (
@@ -369,7 +373,7 @@ export async function matchRecruitments(
   });
 
   scored.sort((a, b) => b.matchScore - a.matchScore);
-  const slice = scored.slice(offset, offset + limit);
+  const slice = scored.slice(safeOffset, safeOffset + safeLimit);
   const detailedSlice = await Promise.all(
     slice.map(async (item) => {
       try {
@@ -391,8 +395,8 @@ export async function matchRecruitments(
   return {
     items,
     total: scored.length,
-    nextOffset: offset + items.length,
-    hasMore: offset + items.length < scored.length,
+    nextOffset: safeOffset + items.length,
+    hasMore: safeOffset + items.length < scored.length,
   };
 }
 

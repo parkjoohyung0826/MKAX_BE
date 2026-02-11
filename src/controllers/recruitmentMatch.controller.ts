@@ -10,6 +10,8 @@ import { ResumeFormatResult } from "../services/resumeFormat.service";
 
 const MatchSchema = z.object({
   code: z.string().min(4),
+  offset: z.coerce.number().int().min(0).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 const ListRecruitmentsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional(),
@@ -43,20 +45,24 @@ export async function matchRecruitmentsController(
       return res.status(400).json({ message: "이력서 데이터가 없습니다." });
     }
 
-    const result = await matchRecruitments(resume, coverLetter, 0, 10);
+    const offset = parsed.data.offset ?? 0;
+    const limit = parsed.data.limit ?? 10;
+    const result = await matchRecruitments(resume, coverLetter, offset, limit);
 
-    const basePayload =
-      record.payload &&
-      typeof record.payload === "object" &&
-      !Array.isArray(record.payload)
-        ? record.payload
-        : {};
-    const updatedPayload: Prisma.InputJsonValue = {
-      ...(basePayload as Record<string, unknown>),
-      recruitmentMatch: result,
-      recruitmentMatchIssuedAt: new Date().toISOString(),
-    };
-    await updateAccessCode(parsed.data.code, updatedPayload);
+    if (offset === 0) {
+      const basePayload =
+        record.payload &&
+        typeof record.payload === "object" &&
+        !Array.isArray(record.payload)
+          ? record.payload
+          : {};
+      const updatedPayload: Prisma.InputJsonValue = {
+        ...(basePayload as Record<string, unknown>),
+        recruitmentMatch: result,
+        recruitmentMatchIssuedAt: new Date().toISOString(),
+      };
+      await updateAccessCode(parsed.data.code, updatedPayload);
+    }
 
     return res.status(200).json(result);
   } catch (err) {
