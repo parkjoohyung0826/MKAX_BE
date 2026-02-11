@@ -2,11 +2,18 @@ import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { findAccessCode, updateAccessCode } from "../repositories/accessCode.repository";
 import { Prisma } from "@prisma/client";
-import { matchRecruitments } from "../services/recruitmentMatch.service";
+import {
+  listRecruitments,
+  matchRecruitments,
+} from "../services/recruitmentMatch.service";
 import { ResumeFormatResult } from "../services/resumeFormat.service";
 
 const MatchSchema = z.object({
   code: z.string().min(4),
+});
+const ListRecruitmentsQuerySchema = z.object({
+  offset: z.coerce.number().int().min(0).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
 export async function matchRecruitmentsController(
@@ -54,6 +61,30 @@ export async function matchRecruitmentsController(
     return res.status(200).json(result);
   } catch (err) {
     console.error("🔥 Error in matchRecruitmentsController");
+    return next(err);
+  }
+}
+
+export async function listRecruitmentsController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const parsed = ListRecruitmentsQuerySchema.safeParse(req.query ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: "Invalid query",
+      errors: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    const offset = parsed.data.offset ?? 0;
+    const limit = parsed.data.limit ?? 10;
+    const result = await listRecruitments(offset, limit);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("🔥 Error in listRecruitmentsController");
     return next(err);
   }
 }

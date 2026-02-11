@@ -74,6 +74,13 @@ export type RecruitmentMatchItem = ScoredRecruitment & {
   acbgCondNmList: string[];
 };
 
+export type RecruitmentListResult = {
+  items: RecruitmentMatchItem[];
+  total: number;
+  nextOffset: number;
+  hasMore: boolean;
+};
+
 const REGION_KEYWORDS = [
   "서울",
   "경기",
@@ -266,6 +273,11 @@ async function scoreRecruitmentsBatch(
 }
 
 export async function fetchRecruitments(pageNo = 1, numOfRows = 50) {
+  const { items } = await fetchRecruitmentsWithMeta(pageNo, numOfRows);
+  return items;
+}
+
+export async function fetchRecruitmentsWithMeta(pageNo = 1, numOfRows = 50) {
   const serviceKey = process.env.RECRUITMENT_SERVICE_KEY;
   if (!serviceKey) {
     throw new Error("Missing RECRUITMENT_SERVICE_KEY");
@@ -288,7 +300,10 @@ export async function fetchRecruitments(pageNo = 1, numOfRows = 50) {
   }
 
   const data = JSON.parse(text);
-  return (data?.result ?? []) as RecruitmentItem[];
+  return {
+    items: (data?.result ?? []) as RecruitmentItem[],
+    totalCount: Number(data?.totalCount ?? 0),
+  };
 }
 
 export async function fetchRecruitmentDetail(sn: number) {
@@ -378,5 +393,48 @@ export async function matchRecruitments(
     total: scored.length,
     nextOffset: offset + items.length,
     hasMore: offset + items.length < scored.length,
+  };
+}
+
+export async function listRecruitments(
+  offset = 0,
+  limit = 10
+): Promise<RecruitmentListResult> {
+  const safeOffset = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 50) : 10;
+  const pageNo = Math.floor(safeOffset / safeLimit) + 1;
+
+  const { items: rawItems, totalCount } = await fetchRecruitmentsWithMeta(
+    pageNo,
+    safeLimit
+  );
+
+  const detailed = await Promise.all(
+    rawItems.map(async (item) => {
+      try {
+        const detail = await fetchRecruitmentDetail(item.recrutPblntSn);
+        return detail ? { ...item, ...detail } : item;
+      } catch {
+        return item;
+      }
+    })
+  );
+
+  const items: RecruitmentMatchItem[] = detailed.map((item) => ({
+    ...item,
+    matchScore: 0,
+    matchReason: "",
+    ncsCdNmList: splitCsv(item.ncsCdNmLst),
+    hireTypeNmList: splitCsv(item.hireTypeNmLst),
+    workRgnNmList: splitCsv(item.workRgnNmLst),
+    acbgCondNmList: splitCsv(item.acbgCondNmLst),
+  }));
+
+  const nextOffset = safeOffset + items.length;
+  return {
+    items,
+    total: totalCount,
+    nextOffset,
+    hasMore: nextOffset < totalCount,
   };
 }
