@@ -357,20 +357,31 @@ export async function matchRecruitments(
 
   const profileSummary = buildProfileSummary(resume, coverLetter);
 
-  const maxBatch = Number(process.env.RECRUITMENT_MATCH_BATCH_LIMIT ?? "20");
-  const batchLimit = Number.isFinite(maxBatch) && maxBatch > 0 ? maxBatch : 20;
-  const batchTargets = filtered.slice(0, batchLimit);
-  const scoreMap = await scoreRecruitmentsBatch(batchTargets, profileSummary);
-  const scored: ScoredRecruitment[] = filtered.map((item) => {
-    const score = scoreMap[item.recrutPblntSn];
-    return {
-      ...item,
-      matchScore: score?.matchScore ?? 0,
-      matchReason:
-        score?.matchReason ??
-        "지원자 정보와 공고 간 연관성을 판단하기 어렵습니다.",
-    };
-  });
+  const chunkSizeFromEnv = Number(process.env.RECRUITMENT_MATCH_BATCH_LIMIT ?? "20");
+  const chunkSize =
+    Number.isFinite(chunkSizeFromEnv) && chunkSizeFromEnv > 0 ? chunkSizeFromEnv : 20;
+  const scoreTargetCount = Math.min(filtered.length, safeOffset + safeLimit);
+  const scoreTargets = filtered.slice(0, scoreTargetCount);
+  const scoreMap: Record<number, { matchScore: number; matchReason: string }> = {};
+
+  for (let i = 0; i < scoreTargets.length; i += chunkSize) {
+    const chunk = scoreTargets.slice(i, i + chunkSize);
+    const chunkScoreMap = await scoreRecruitmentsBatch(chunk, profileSummary);
+    Object.assign(scoreMap, chunkScoreMap);
+  }
+
+  // 점수가 계산된 항목만 추천 리스트에 포함한다.
+  const scored: ScoredRecruitment[] = filtered
+    .map((item) => {
+      const score = scoreMap[item.recrutPblntSn];
+      if (!score) return null;
+      return {
+        ...item,
+        matchScore: score.matchScore,
+        matchReason: score.matchReason,
+      };
+    })
+    .filter((item): item is ScoredRecruitment => item !== null);
 
   scored.sort((a, b) => b.matchScore - a.matchScore);
   const slice = scored.slice(safeOffset, safeOffset + safeLimit);
