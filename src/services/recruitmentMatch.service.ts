@@ -291,6 +291,35 @@ export async function fetchRecruitments(pageNo = 1, numOfRows = 50) {
   return (data?.result ?? []) as RecruitmentItem[];
 }
 
+export async function fetchRecruitmentDetail(sn: number) {
+  const serviceKey = process.env.RECRUITMENT_SERVICE_KEY;
+  if (!serviceKey) {
+    throw new Error("Missing RECRUITMENT_SERVICE_KEY");
+  }
+
+  const params = new URLSearchParams({
+    sn: String(sn),
+    resultType: "json",
+  });
+  const encodedKey = serviceKey.includes("%")
+    ? serviceKey
+    : encodeURIComponent(serviceKey);
+  const url = `https://apis.data.go.kr/1051000/recruitment/detail?serviceKey=${encodedKey}&${params.toString()}`;
+
+  const response = await fetch(url);
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text || `Request failed: ${response.status}`);
+  }
+
+  const data = JSON.parse(text);
+  if (String(data?.resultCode) !== "200") {
+    throw new Error(data?.resultMsg || "Failed to fetch recruitment detail");
+  }
+
+  return (data?.result ?? null) as RecruitmentItem | null;
+}
+
 export async function matchRecruitments(
   resume: ResumeFormatResult,
   coverLetter: CoverLetterInput | undefined,
@@ -326,7 +355,17 @@ export async function matchRecruitments(
 
   scored.sort((a, b) => b.matchScore - a.matchScore);
   const slice = scored.slice(offset, offset + limit);
-  const items: RecruitmentMatchItem[] = slice.map((item) => ({
+  const detailedSlice = await Promise.all(
+    slice.map(async (item) => {
+      try {
+        const detail = await fetchRecruitmentDetail(item.recrutPblntSn);
+        return detail ? { ...item, ...detail } : item;
+      } catch {
+        return item;
+      }
+    })
+  );
+  const items: RecruitmentMatchItem[] = detailedSlice.map((item) => ({
     ...item,
     ncsCdNmList: splitCsv(item.ncsCdNmLst),
     hireTypeNmList: splitCsv(item.hireTypeNmLst),
