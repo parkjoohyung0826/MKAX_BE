@@ -6,9 +6,8 @@ RUN apt-get update -y && apt-get install -y openssl \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci
-
 COPY prisma ./prisma
+RUN npm ci
 RUN npx prisma generate
 
 COPY tsconfig.json ./
@@ -24,9 +23,8 @@ RUN apt-get update -y && apt-get install -y openssl \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
 COPY prisma ./prisma
+RUN npm ci --omit=dev
 RUN npx prisma generate
 
 COPY --from=build /app/dist ./dist
