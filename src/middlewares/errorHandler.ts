@@ -6,11 +6,35 @@ export function errorHandler(
   res: Response,
   next: NextFunction
 ) {
-  console.error("🔥 [Global Error Handler]");
-  console.error("URL:", req.method, req.originalUrl);
-  console.error("Error:", err);
+  const status =
+    typeof err?.status === "number"
+      ? err.status
+      : typeof err?.statusCode === "number"
+      ? err.statusCode
+      : 500;
+  const message =
+    typeof err?.message === "string" && err.message.trim()
+      ? err.message
+      : "Internal Server Error";
 
-  res.status(500).json({
-    message: err?.message ?? "Internal Server Error",
+  const stack =
+    err instanceof Error ? err.stack : typeof err === "string" ? err : undefined;
+  console.error(
+    JSON.stringify({
+      tag: "global_error_handler",
+      method: req.method,
+      url: req.originalUrl,
+      status,
+      message,
+      stack,
+    })
+  );
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(status).json({
+    message,
   });
 }

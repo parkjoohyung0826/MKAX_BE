@@ -786,11 +786,13 @@ export async function listRecruitments(
   ]);
 
   if (total === 0 && syncError) {
-    throw new Error(
+    const error = new Error(
       `Recruitment sync failed and no cached postings are available: ${toErrorMessage(
         syncError
       )}`
     );
+    (error as Error & { status?: number }).status = 503;
+    throw error;
   }
 
   const items = postings.map(mapPostingToMatchItem);
