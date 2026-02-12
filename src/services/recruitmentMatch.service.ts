@@ -81,6 +81,7 @@ export type RecruitmentListResult = {
   total: number;
   nextOffset: number;
   hasMore: boolean;
+  warning?: string;
 };
 
 export type RecruitmentListFilters = {
@@ -786,13 +787,13 @@ export async function listRecruitments(
   ]);
 
   if (total === 0 && syncError) {
-    const error = new Error(
-      `Recruitment sync failed and no cached postings are available: ${toErrorMessage(
-        syncError
-      )}`
-    );
-    (error as Error & { status?: number }).status = 503;
-    throw error;
+    return {
+      items: [],
+      total: 0,
+      nextOffset: safeOffset,
+      hasMore: false,
+      warning: `Recruitment data is temporarily unavailable: ${toErrorMessage(syncError)}`,
+    };
   }
 
   const items = postings.map(mapPostingToMatchItem);
