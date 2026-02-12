@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import {
   listRecruitments,
   matchRecruitments,
+  syncRecruitmentPostings,
 } from "../services/recruitmentMatch.service";
 import { ResumeFormatResult } from "../services/resumeFormat.service";
 
@@ -14,6 +15,75 @@ const MatchSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 const ListRecruitmentsQuerySchema = z.object({
+  q: z.string().trim().min(1).max(100).optional(),
+  regions: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((value) => {
+      const values = Array.isArray(value) ? value : value ? [value] : [];
+      return values.flatMap((item) =>
+        String(item)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean)
+      );
+    }),
+  fields: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((value) => {
+      const values = Array.isArray(value) ? value : value ? [value] : [];
+      return values.flatMap((item) =>
+        String(item)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean)
+      );
+    }),
+  careerTypes: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((value) => {
+      const values = Array.isArray(value) ? value : value ? [value] : [];
+      return values.flatMap((item) =>
+        String(item)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean)
+      );
+    }),
+  educationLevels: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((value) => {
+      const values = Array.isArray(value) ? value : value ? [value] : [];
+      return values.flatMap((item) =>
+        String(item)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean)
+      );
+    }),
+  hireTypes: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((value) => {
+      const values = Array.isArray(value) ? value : value ? [value] : [];
+      return values.flatMap((item) =>
+        String(item)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean)
+      );
+    }),
+  includeClosed: z
+    .union([z.literal("true"), z.literal("false"), z.boolean()])
+    .optional()
+    .transform((value) => value === true || value === "true"),
+  refresh: z
+    .union([z.literal("true"), z.literal("false"), z.boolean()])
+    .optional()
+    .transform((value) => value === true || value === "true"),
   offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
@@ -87,10 +157,40 @@ export async function listRecruitmentsController(
   try {
     const offset = parsed.data.offset ?? 0;
     const limit = parsed.data.limit ?? 10;
-    const result = await listRecruitments(offset, limit);
+    const result = await listRecruitments(
+      {
+        q: parsed.data.q,
+        regions: parsed.data.regions,
+        fields: parsed.data.fields,
+        careerTypes: parsed.data.careerTypes,
+        educationLevels: parsed.data.educationLevels,
+        hireTypes: parsed.data.hireTypes,
+        includeClosed: parsed.data.includeClosed,
+        refresh: parsed.data.refresh,
+      },
+      offset,
+      limit
+    );
     return res.status(200).json(result);
   } catch (err) {
     console.error("🔥 Error in listRecruitmentsController");
+    return next(err);
+  }
+}
+
+export async function syncRecruitmentsController(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const result = await syncRecruitmentPostings(true);
+    return res.status(200).json({
+      message: "Recruitment postings synchronized.",
+      result,
+    });
+  } catch (err) {
+    console.error("🔥 Error in syncRecruitmentsController");
     return next(err);
   }
 }

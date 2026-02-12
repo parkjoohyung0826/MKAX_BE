@@ -76,3 +76,40 @@ model AccessCode {
   payload   Json
   createdAt DateTime @default(now())
 }
+
+model RecruitmentPosting {
+  id              Int      @id @default(autoincrement())
+  recrutPblntSn   Int      @unique
+  instNm          String   @default("")
+  recrutPbancTtl  String   @default("")
+  recrutSeNm      String   @default("")
+  aplyQlfcCn      String   @default("")
+  prefCn          String   @default("")
+  pbancBgngYmd    String?
+  pbancEndYmd     String?
+  ongoingYn       String?
+  isActive        Boolean  @default(true)
+  isOngoing       Boolean  @default(true)
+  ncsCdNmLst      String   @default("")
+  hireTypeNmLst   String   @default("")
+  workRgnNmLst    String   @default("")
+  acbgCondNmLst   String   @default("")
+  ncsCdNmList     String[] @default([])
+  hireTypeNmList  String[] @default([])
+  workRgnNmList   String[] @default([])
+  acbgCondNmList  String[] @default([])
+  searchText      String   @default("")
+  raw             Json
+  lastSeenAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive, isOngoing])
+  @@index([pbancEndYmd])
+  @@index([recrutSeNm])
+  @@index([lastSeenAt])
+  @@index([workRgnNmList], type: Gin)
+  @@index([ncsCdNmList], type: Gin)
+  @@index([hireTypeNmList], type: Gin)
+  @@index([acbgCondNmList], type: Gin)
+}

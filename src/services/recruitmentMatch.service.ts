@@ -1,4 +1,6 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { Prisma } from "@prisma/client";
+import { prisma } from "../infra/db/prisma";
 import { ResumeFormatResult } from "./resumeFormat.service";
 
 type CoverLetterInput = {
@@ -81,6 +83,26 @@ export type RecruitmentListResult = {
   hasMore: boolean;
 };
 
+export type RecruitmentListFilters = {
+  q?: string;
+  regions?: string[];
+  fields?: string[];
+  careerTypes?: string[];
+  educationLevels?: string[];
+  hireTypes?: string[];
+  includeClosed?: boolean;
+  refresh?: boolean;
+};
+
+export type RecruitmentSyncResult = {
+  totalFetched: number;
+  inserted: number;
+  updated: number;
+  deactivated: number;
+  pageCount: number;
+  syncedAt: string;
+};
+
 const REGION_KEYWORDS = [
   "서울",
   "경기",
@@ -102,8 +124,15 @@ const REGION_KEYWORDS = [
   "전국",
 ];
 
+let syncInFlight: Promise<RecruitmentSyncResult> | null = null;
+
 function normalize(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return normalize(error) || "unknown error";
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -116,6 +145,38 @@ function splitCsv(value: unknown) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function toInputJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
+}
+
+function isOngoingRecruitment(item: RecruitmentItem) {
+  const ongoing = normalize(item.ongoingYn).toUpperCase();
+  if (!ongoing) return true;
+  return ongoing !== "N";
+}
+
+function buildSearchText(item: RecruitmentItem) {
+  return [
+    normalize(item.instNm),
+    normalize(item.recrutPbancTtl),
+    normalize(item.recrutSeNm),
+    normalize(item.aplyQlfcCn),
+    normalize(item.prefCn),
+    normalize(item.ncsCdNmLst),
+    normalize(item.workRgnNmLst),
+    normalize(item.hireTypeNmLst),
+    normalize(item.acbgCondNmLst),
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function extractRegion(address: string) {
@@ -335,6 +396,264 @@ export async function fetchRecruitmentDetail(sn: number) {
   return (data?.result ?? null) as RecruitmentItem | null;
 }
 
+function buildPostingWhere(filters: RecruitmentListFilters): Prisma.RecruitmentPostingWhereInput {
+  const where: Prisma.RecruitmentPostingWhereInput = {
+    isActive: true,
+  };
+
+  if (!filters.includeClosed) {
+    where.isOngoing = true;
+  }
+
+  const andConditions: Prisma.RecruitmentPostingWhereInput[] = [];
+
+  const keyword = normalize(filters.q);
+  if (keyword) {
+    const terms = keyword.split(/\s+/).filter(Boolean);
+    for (const term of terms) {
+      andConditions.push({
+        OR: [
+          { recrutPbancTtl: { contains: term, mode: "insensitive" } },
+          { instNm: { contains: term, mode: "insensitive" } },
+          { searchText: { contains: term, mode: "insensitive" } },
+        ],
+      });
+    }
+  }
+
+  const regions = (filters.regions ?? []).map(normalize).filter(Boolean);
+  if (regions.length > 0) {
+    andConditions.push({ workRgnNmList: { hasSome: regions } });
+  }
+
+  const fields = (filters.fields ?? []).map(normalize).filter(Boolean);
+  if (fields.length > 0) {
+    andConditions.push({ ncsCdNmList: { hasSome: fields } });
+  }
+
+  const hireTypes = (filters.hireTypes ?? []).map(normalize).filter(Boolean);
+  if (hireTypes.length > 0) {
+    andConditions.push({ hireTypeNmList: { hasSome: hireTypes } });
+  }
+
+  const educationLevels = (filters.educationLevels ?? [])
+    .map(normalize)
+    .filter(Boolean);
+  if (educationLevels.length > 0) {
+    andConditions.push({ acbgCondNmList: { hasSome: educationLevels } });
+  }
+
+  const careerTypes = (filters.careerTypes ?? []).map(normalize).filter(Boolean);
+  if (careerTypes.length > 0) {
+    andConditions.push({
+      OR: careerTypes.map((careerType) => ({
+        recrutSeNm: { contains: careerType, mode: "insensitive" },
+      })),
+    });
+  }
+
+  if (andConditions.length > 0) {
+    where.AND = andConditions;
+  }
+
+  return where;
+}
+
+async function upsertRecruitmentsBatch(
+  items: RecruitmentItem[],
+  seenAt: Date
+): Promise<{ inserted: number; updated: number }> {
+  if (items.length === 0) {
+    return { inserted: 0, updated: 0 };
+  }
+
+  const sns = items.map((item) => item.recrutPblntSn);
+  const existingRows = await prisma.recruitmentPosting.findMany({
+    where: { recrutPblntSn: { in: sns } },
+    select: { recrutPblntSn: true },
+  });
+  const existingSet = new Set(existingRows.map((row) => row.recrutPblntSn));
+
+  await prisma.$transaction(
+    items.map((item) => {
+      const ncsCdNmList = splitCsv(item.ncsCdNmLst);
+      const hireTypeNmList = splitCsv(item.hireTypeNmLst);
+      const workRgnNmList = splitCsv(item.workRgnNmLst);
+      const acbgCondNmList = splitCsv(item.acbgCondNmLst);
+      const commonData = {
+        instNm: normalize(item.instNm),
+        recrutPbancTtl: normalize(item.recrutPbancTtl),
+        recrutSeNm: normalize(item.recrutSeNm),
+        aplyQlfcCn: normalize(item.aplyQlfcCn),
+        prefCn: normalize(item.prefCn),
+        pbancBgngYmd: normalize(item.pbancBgngYmd) || null,
+        pbancEndYmd: normalize(item.pbancEndYmd) || null,
+        ongoingYn: normalize(item.ongoingYn) || null,
+        isActive: true,
+        isOngoing: isOngoingRecruitment(item),
+        ncsCdNmLst: normalize(item.ncsCdNmLst),
+        hireTypeNmLst: normalize(item.hireTypeNmLst),
+        workRgnNmLst: normalize(item.workRgnNmLst),
+        acbgCondNmLst: normalize(item.acbgCondNmLst),
+        ncsCdNmList,
+        hireTypeNmList,
+        workRgnNmList,
+        acbgCondNmList,
+        searchText: buildSearchText(item),
+        raw: toInputJson(item),
+        lastSeenAt: seenAt,
+      };
+      return prisma.recruitmentPosting.upsert({
+        where: { recrutPblntSn: item.recrutPblntSn },
+        create: {
+          recrutPblntSn: item.recrutPblntSn,
+          ...commonData,
+        },
+        update: commonData,
+      });
+    })
+  );
+
+  return {
+    inserted: items.length - existingSet.size,
+    updated: existingSet.size,
+  };
+}
+
+async function performRecruitmentSync(): Promise<RecruitmentSyncResult> {
+  const syncStartedAt = new Date();
+  const pageSize = Math.min(
+    parsePositiveInt(process.env.RECRUITMENT_SYNC_PAGE_SIZE, 100),
+    200
+  );
+  const maxPages = parsePositiveInt(process.env.RECRUITMENT_SYNC_MAX_PAGES, 100);
+
+  let pageNo = 1;
+  let totalFetched = 0;
+  let inserted = 0;
+  let updated = 0;
+  let pageCount = 0;
+  let totalCount = 0;
+
+  while (pageNo <= maxPages) {
+    const { items, totalCount: fetchedTotal } = await fetchRecruitmentsWithMeta(
+      pageNo,
+      pageSize
+    );
+    totalCount = fetchedTotal;
+    pageCount += 1;
+
+    if (items.length === 0) {
+      break;
+    }
+
+    const batchResult = await upsertRecruitmentsBatch(items, syncStartedAt);
+    inserted += batchResult.inserted;
+    updated += batchResult.updated;
+    totalFetched += items.length;
+
+    if (totalCount > 0 && totalFetched >= totalCount) {
+      break;
+    }
+
+    pageNo += 1;
+  }
+
+  const deactivated = await prisma.recruitmentPosting.updateMany({
+    where: { lastSeenAt: { lt: syncStartedAt }, isActive: true },
+    data: { isActive: false, isOngoing: false },
+  });
+
+  return {
+    totalFetched,
+    inserted,
+    updated,
+    deactivated: deactivated.count,
+    pageCount,
+    syncedAt: syncStartedAt.toISOString(),
+  };
+}
+
+async function ensureRecruitmentsSynced(force = false): Promise<RecruitmentSyncResult | null> {
+  const latest = await prisma.recruitmentPosting.findFirst({
+    where: { isActive: true },
+    orderBy: { lastSeenAt: "desc" },
+    select: { lastSeenAt: true },
+  });
+
+  if (!force && latest) {
+    const intervalMinutes = parsePositiveInt(
+      process.env.RECRUITMENT_SYNC_INTERVAL_MINUTES,
+      30
+    );
+    const intervalMs = intervalMinutes * 60 * 1000;
+    const elapsed = Date.now() - latest.lastSeenAt.getTime();
+    if (elapsed < intervalMs) {
+      return null;
+    }
+  }
+
+  if (syncInFlight) {
+    return syncInFlight;
+  }
+
+  syncInFlight = performRecruitmentSync().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
+function mapPostingToMatchItem(
+  posting: {
+    recrutPblntSn: number;
+    instNm: string;
+    recrutPbancTtl: string;
+    recrutSeNm: string;
+    aplyQlfcCn: string;
+    prefCn: string;
+    pbancBgngYmd: string | null;
+    pbancEndYmd: string | null;
+    ongoingYn: string | null;
+    ncsCdNmLst: string;
+    hireTypeNmLst: string;
+    workRgnNmLst: string;
+    acbgCondNmLst: string;
+    ncsCdNmList: string[];
+    hireTypeNmList: string[];
+    workRgnNmList: string[];
+    acbgCondNmList: string[];
+    raw: Prisma.JsonValue;
+  }
+): RecruitmentMatchItem {
+  const raw =
+    posting.raw && typeof posting.raw === "object" && !Array.isArray(posting.raw)
+      ? (posting.raw as RecruitmentItem)
+      : ({} as RecruitmentItem);
+
+  return {
+    ...raw,
+    recrutPblntSn: posting.recrutPblntSn,
+    instNm: posting.instNm,
+    recrutPbancTtl: posting.recrutPbancTtl,
+    recrutSeNm: posting.recrutSeNm,
+    aplyQlfcCn: posting.aplyQlfcCn,
+    prefCn: posting.prefCn,
+    pbancBgngYmd: posting.pbancBgngYmd ?? undefined,
+    pbancEndYmd: posting.pbancEndYmd ?? undefined,
+    ongoingYn: posting.ongoingYn ?? undefined,
+    ncsCdNmLst: posting.ncsCdNmLst,
+    hireTypeNmLst: posting.hireTypeNmLst,
+    workRgnNmLst: posting.workRgnNmLst,
+    acbgCondNmLst: posting.acbgCondNmLst,
+    matchScore: 0,
+    matchReason: "",
+    ncsCdNmList: posting.ncsCdNmList,
+    hireTypeNmList: posting.hireTypeNmList,
+    workRgnNmList: posting.workRgnNmList,
+    acbgCondNmList: posting.acbgCondNmList,
+  };
+}
+
 export async function matchRecruitments(
   resume: ResumeFormatResult,
   coverLetter: CoverLetterInput | undefined,
@@ -411,45 +730,76 @@ export async function matchRecruitments(
   };
 }
 
+export async function syncRecruitmentPostings(force = true) {
+  return ensureRecruitmentsSynced(force);
+}
+
 export async function listRecruitments(
+  filters: RecruitmentListFilters = {},
   offset = 0,
   limit = 10
 ): Promise<RecruitmentListResult> {
+  let syncError: unknown = null;
+  try {
+    await ensureRecruitmentsSynced(Boolean(filters.refresh));
+  } catch (error) {
+    syncError = error;
+    console.error("⚠️ Recruitment sync skipped due to upstream error:", error);
+  }
+
   const safeOffset = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 50) : 10;
-  const pageNo = Math.floor(safeOffset / safeLimit) + 1;
+  const where = buildPostingWhere(filters);
 
-  const { items: rawItems, totalCount } = await fetchRecruitmentsWithMeta(
-    pageNo,
-    safeLimit
-  );
+  const [total, postings] = await prisma.$transaction([
+    prisma.recruitmentPosting.count({ where }),
+    prisma.recruitmentPosting.findMany({
+      where,
+      skip: safeOffset,
+      take: safeLimit,
+      orderBy: [
+        { updatedAt: "desc" },
+        { pbancEndYmd: "asc" },
+        { recrutPblntSn: "desc" },
+      ],
+      select: {
+        recrutPblntSn: true,
+        instNm: true,
+        recrutPbancTtl: true,
+        recrutSeNm: true,
+        aplyQlfcCn: true,
+        prefCn: true,
+        pbancBgngYmd: true,
+        pbancEndYmd: true,
+        ongoingYn: true,
+        ncsCdNmLst: true,
+        hireTypeNmLst: true,
+        workRgnNmLst: true,
+        acbgCondNmLst: true,
+        ncsCdNmList: true,
+        hireTypeNmList: true,
+        workRgnNmList: true,
+        acbgCondNmList: true,
+        raw: true,
+      },
+    }),
+  ]);
 
-  const detailed = await Promise.all(
-    rawItems.map(async (item) => {
-      try {
-        const detail = await fetchRecruitmentDetail(item.recrutPblntSn);
-        return detail ? { ...item, ...detail } : item;
-      } catch {
-        return item;
-      }
-    })
-  );
+  if (total === 0 && syncError) {
+    throw new Error(
+      `Recruitment sync failed and no cached postings are available: ${toErrorMessage(
+        syncError
+      )}`
+    );
+  }
 
-  const items: RecruitmentMatchItem[] = detailed.map((item) => ({
-    ...item,
-    matchScore: 0,
-    matchReason: "",
-    ncsCdNmList: splitCsv(item.ncsCdNmLst),
-    hireTypeNmList: splitCsv(item.hireTypeNmLst),
-    workRgnNmList: splitCsv(item.workRgnNmLst),
-    acbgCondNmList: splitCsv(item.acbgCondNmLst),
-  }));
-
+  const items = postings.map(mapPostingToMatchItem);
   const nextOffset = safeOffset + items.length;
+
   return {
     items,
-    total: totalCount,
+    total,
     nextOffset,
-    hasMore: nextOffset < totalCount,
+    hasMore: nextOffset < total,
   };
 }
