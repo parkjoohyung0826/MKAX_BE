@@ -683,8 +683,67 @@ export async function matchRecruitments(
   const safeOffset = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 50) : 10;
   const minRows = safeOffset + safeLimit;
-  const numOfRows = Math.max(50, Math.min(minRows, 500));
-  const rawList = await fetchRecruitments(1, numOfRows);
+  const candidateLimitFromEnv = parsePositiveInt(
+    process.env.RECRUITMENT_MATCH_CANDIDATE_LIMIT,
+    500
+  );
+  const candidateLimit = Math.max(
+    50,
+    Math.min(Math.max(minRows, safeLimit), Math.max(candidateLimitFromEnv, 50))
+  );
+
+  const postings = await prisma.recruitmentPosting.findMany({
+    where: {
+      isActive: true,
+      isOngoing: true,
+    },
+    take: candidateLimit,
+    orderBy: [
+      { updatedAt: "desc" },
+      { pbancEndYmd: "asc" },
+      { recrutPblntSn: "desc" },
+    ],
+    select: {
+      recrutPblntSn: true,
+      instNm: true,
+      recrutPbancTtl: true,
+      recrutSeNm: true,
+      aplyQlfcCn: true,
+      prefCn: true,
+      pbancBgngYmd: true,
+      pbancEndYmd: true,
+      ongoingYn: true,
+      ncsCdNmLst: true,
+      hireTypeNmLst: true,
+      workRgnNmLst: true,
+      acbgCondNmLst: true,
+      raw: true,
+    },
+  });
+
+  const rawList: RecruitmentItem[] = postings.map((posting) => {
+    const raw =
+      posting.raw && typeof posting.raw === "object" && !Array.isArray(posting.raw)
+        ? (posting.raw as RecruitmentItem)
+        : ({} as RecruitmentItem);
+
+    return {
+      ...raw,
+      recrutPblntSn: posting.recrutPblntSn,
+      instNm: posting.instNm,
+      recrutPbancTtl: posting.recrutPbancTtl,
+      recrutSeNm: posting.recrutSeNm,
+      aplyQlfcCn: posting.aplyQlfcCn,
+      prefCn: posting.prefCn,
+      pbancBgngYmd: posting.pbancBgngYmd ?? undefined,
+      pbancEndYmd: posting.pbancEndYmd ?? undefined,
+      ongoingYn: posting.ongoingYn ?? undefined,
+      ncsCdNmLst: posting.ncsCdNmLst,
+      hireTypeNmLst: posting.hireTypeNmLst,
+      workRgnNmLst: posting.workRgnNmLst,
+      acbgCondNmLst: posting.acbgCondNmLst,
+    };
+  });
 
   const filtered = rawList.filter((item) => {
     return (
@@ -724,17 +783,7 @@ export async function matchRecruitments(
 
   scored.sort((a, b) => b.matchScore - a.matchScore);
   const slice = scored.slice(safeOffset, safeOffset + safeLimit);
-  const detailedSlice = await Promise.all(
-    slice.map(async (item) => {
-      try {
-        const detail = await fetchRecruitmentDetail(item.recrutPblntSn);
-        return detail ? { ...item, ...detail } : item;
-      } catch {
-        return item;
-      }
-    })
-  );
-  const items: RecruitmentMatchItem[] = detailedSlice.map((item) => ({
+  const items: RecruitmentMatchItem[] = slice.map((item) => ({
     ...item,
     ncsCdNmList: splitCsv(item.ncsCdNmLst),
     hireTypeNmList: splitCsv(item.hireTypeNmLst),
