@@ -80,10 +80,6 @@ const ListRecruitmentsQuerySchema = z.object({
     .union([z.literal("true"), z.literal("false"), z.boolean()])
     .optional()
     .transform((value) => value === true || value === "true"),
-  refresh: z
-    .union([z.literal("true"), z.literal("false"), z.boolean()])
-    .optional()
-    .transform((value) => value === true || value === "true"),
   offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
@@ -166,7 +162,6 @@ export async function listRecruitmentsController(
         educationLevels: parsed.data.educationLevels,
         hireTypes: parsed.data.hireTypes,
         includeClosed: parsed.data.includeClosed,
-        refresh: parsed.data.refresh,
       },
       offset,
       limit

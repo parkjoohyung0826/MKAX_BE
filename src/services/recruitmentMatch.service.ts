@@ -81,7 +81,6 @@ export type RecruitmentListResult = {
   total: number;
   nextOffset: number;
   hasMore: boolean;
-  warning?: string;
 };
 
 export type RecruitmentListFilters = {
@@ -92,7 +91,6 @@ export type RecruitmentListFilters = {
   educationLevels?: string[];
   hireTypes?: string[];
   includeClosed?: boolean;
-  refresh?: boolean;
 };
 
 export type RecruitmentSyncResult = {
@@ -129,11 +127,6 @@ let syncInFlight: Promise<RecruitmentSyncResult> | null = null;
 
 function normalize(value: unknown): string {
   return String(value ?? "").trim();
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return normalize(error) || "unknown error";
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -740,14 +733,6 @@ export async function listRecruitments(
   offset = 0,
   limit = 10
 ): Promise<RecruitmentListResult> {
-  let syncError: unknown = null;
-  try {
-    await ensureRecruitmentsSynced(Boolean(filters.refresh));
-  } catch (error) {
-    syncError = error;
-    console.error("⚠️ Recruitment sync skipped due to upstream error:", error);
-  }
-
   const safeOffset = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 50) : 10;
   const where = buildPostingWhere(filters);
@@ -785,16 +770,6 @@ export async function listRecruitments(
       },
     }),
   ]);
-
-  if (total === 0 && syncError) {
-    return {
-      items: [],
-      total: 0,
-      nextOffset: safeOffset,
-      hasMore: false,
-      warning: `Recruitment data is temporarily unavailable: ${toErrorMessage(syncError)}`,
-    };
-  }
 
   const items = postings.map(mapPostingToMatchItem);
   const nextOffset = safeOffset + items.length;
