@@ -540,6 +540,36 @@ async function upsertRecruitmentsBatch(
   };
 }
 
+async function enrichRecruitmentsWithDetail(
+  items: RecruitmentItem[]
+): Promise<RecruitmentItem[]> {
+  if (items.length === 0) return [];
+
+  const detailConcurrency = parsePositiveInt(
+    process.env.RECRUITMENT_SYNC_DETAIL_CONCURRENCY,
+    5
+  );
+  const safeConcurrency = Math.max(1, Math.min(detailConcurrency, 20));
+  const results: RecruitmentItem[] = [];
+
+  for (let i = 0; i < items.length; i += safeConcurrency) {
+    const chunk = items.slice(i, i + safeConcurrency);
+    const chunkResults = await Promise.all(
+      chunk.map(async (item) => {
+        try {
+          const detail = await fetchRecruitmentDetail(item.recrutPblntSn);
+          return detail ? { ...item, ...detail } : item;
+        } catch {
+          return item;
+        }
+      })
+    );
+    results.push(...chunkResults);
+  }
+
+  return results;
+}
+
 async function performRecruitmentSync(): Promise<RecruitmentSyncResult> {
   const syncStartedAt = new Date();
   const pageSize = Math.min(
@@ -567,10 +597,14 @@ async function performRecruitmentSync(): Promise<RecruitmentSyncResult> {
       break;
     }
 
-    const batchResult = await upsertRecruitmentsBatch(items, syncStartedAt);
+    const detailEnabled = process.env.RECRUITMENT_SYNC_INCLUDE_DETAIL !== "false";
+    const itemsToUpsert = detailEnabled
+      ? await enrichRecruitmentsWithDetail(items)
+      : items;
+    const batchResult = await upsertRecruitmentsBatch(itemsToUpsert, syncStartedAt);
     inserted += batchResult.inserted;
     updated += batchResult.updated;
-    totalFetched += items.length;
+    totalFetched += itemsToUpsert.length;
 
     if (totalCount > 0 && totalFetched >= totalCount) {
       break;
