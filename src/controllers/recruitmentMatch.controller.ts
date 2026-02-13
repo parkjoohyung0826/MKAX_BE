@@ -3,6 +3,7 @@ import { z } from "zod";
 import { findAccessCode, updateAccessCode } from "../repositories/accessCode.repository";
 import { Prisma } from "@prisma/client";
 import {
+  getRecruitmentFilterOptions,
   listRecruitments,
   matchRecruitments,
   syncRecruitmentPostings,
@@ -82,6 +83,12 @@ const ListRecruitmentsQuerySchema = z.object({
     .transform((value) => value === true || value === "true"),
   offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+const RecruitmentFiltersQuerySchema = z.object({
+  includeClosed: z
+    .union([z.literal("true"), z.literal("false"), z.boolean()])
+    .optional()
+    .transform((value) => value === true || value === "true"),
 });
 
 export async function matchRecruitmentsController(
@@ -186,6 +193,28 @@ export async function syncRecruitmentsController(
     });
   } catch (err) {
     console.error("🔥 Error in syncRecruitmentsController");
+    return next(err);
+  }
+}
+
+export async function recruitmentFilterOptionsController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const parsed = RecruitmentFiltersQuerySchema.safeParse(req.query ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: "Invalid query",
+      errors: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    const result = await getRecruitmentFilterOptions(parsed.data.includeClosed);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("🔥 Error in recruitmentFilterOptionsController");
     return next(err);
   }
 }

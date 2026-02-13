@@ -102,6 +102,14 @@ export type RecruitmentSyncResult = {
   syncedAt: string;
 };
 
+export type RecruitmentFilterOptionsResult = {
+  regions: string[];
+  fields: string[];
+  careerTypes: string[];
+  educationLevels: string[];
+  hireTypes: string[];
+};
+
 const REGION_KEYWORDS = [
   "서울",
   "경기",
@@ -139,6 +147,24 @@ function splitCsv(value: unknown) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function splitCareerType(value: unknown) {
+  const raw = normalize(value);
+  if (!raw) return [];
+
+  const values = raw
+    .split(/[\/,|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (raw.includes("신입")) values.push("신입");
+  if (raw.includes("경력")) values.push("경력");
+  return values;
+}
+
+function sortUnique(values: Set<string>) {
+  return Array.from(values).sort((a, b) => a.localeCompare(b, "ko"));
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
@@ -779,5 +805,45 @@ export async function listRecruitments(
     total,
     nextOffset,
     hasMore: nextOffset < total,
+  };
+}
+
+export async function getRecruitmentFilterOptions(
+  includeClosed = false
+): Promise<RecruitmentFilterOptionsResult> {
+  const postings = await prisma.recruitmentPosting.findMany({
+    where: {
+      isActive: true,
+      ...(includeClosed ? {} : { isOngoing: true }),
+    },
+    select: {
+      workRgnNmList: true,
+      ncsCdNmList: true,
+      recrutSeNm: true,
+      acbgCondNmList: true,
+      hireTypeNmList: true,
+    },
+  });
+
+  const regions = new Set<string>();
+  const fields = new Set<string>();
+  const careerTypes = new Set<string>();
+  const educationLevels = new Set<string>();
+  const hireTypes = new Set<string>();
+
+  for (const posting of postings) {
+    for (const item of posting.workRgnNmList) regions.add(item);
+    for (const item of posting.ncsCdNmList) fields.add(item);
+    for (const item of splitCareerType(posting.recrutSeNm)) careerTypes.add(item);
+    for (const item of posting.acbgCondNmList) educationLevels.add(item);
+    for (const item of posting.hireTypeNmList) hireTypes.add(item);
+  }
+
+  return {
+    regions: sortUnique(regions),
+    fields: sortUnique(fields),
+    careerTypes: sortUnique(careerTypes),
+    educationLevels: sortUnique(educationLevels),
+    hireTypes: sortUnique(hireTypes),
   };
 }
