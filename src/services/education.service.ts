@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { findPeriodOrderIssues } from "../common/periodValidation";
 
 export type RecommendEducationResult = {
   fullDescription: string;
@@ -20,6 +21,15 @@ export async function recommendEducationFromDescription(
       isComplete: false,
     };
   }
+  const periodIssues = findPeriodOrderIssues(trimmedDescription);
+  if (periodIssues.length > 0) {
+    const first = periodIssues[0];
+    return {
+      fullDescription: "",
+      missingInfo: `학력 기간이 올바르지 않아요. 시작일(${first.start})은 종료일(${first.end})보다 이전이어야 해요. 기간을 다시 확인해주세요.`,
+      isComplete: false,
+    };
+  }
 
   const systemPrompt = `
 너는 이력서 작성 도우미야.
@@ -36,6 +46,7 @@ export async function recommendEducationFromDescription(
 - schoolName: 학교명(가능하면 공식 명칭)
 - major: 전공명
 - period: "YYYY.MM ~ YYYY.MM" 형태 우선, 모르면 원문에서 가능한 범위로 유지
+- period의 시작일은 종료일보다 반드시 이전이어야 한다. (같거나 더 늦으면 isComplete=false)
 - graduationStatus: "졸업" | "재학" | "휴학" | "수료" | "중퇴" | "졸업예정" 중 하나로 매핑(추론 가능)
 - details: 핵심만 2~4줄 요약(줄바꿈 포함 가능). 예:
   "주요 수강 과목: ...\\n졸업 프로젝트: ..."

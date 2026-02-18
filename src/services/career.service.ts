@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { findPeriodOrderIssues } from "../common/periodValidation";
 
 export type CareerResult = {
   fullDescription: string;
@@ -15,6 +16,15 @@ export async function recommendCareerFromInput(
     return {
       fullDescription: "",
       missingInfo: "경력 정보를 5글자 이상 입력해주세요.",
+      isComplete: false,
+    };
+  }
+  const periodIssues = findPeriodOrderIssues(trimmedInput);
+  if (periodIssues.length > 0) {
+    const first = periodIssues[0];
+    return {
+      fullDescription: "",
+      missingInfo: `경력 기간이 올바르지 않아요. 시작일(${first.start})은 종료일(${first.end})보다 이전이어야 해요. 기간을 다시 확인해주세요.`,
       isComplete: false,
     };
   }
@@ -35,6 +45,7 @@ export async function recommendCareerFromInput(
 규칙:
 - fullDescription은 줄바꿈 포함 이력서용 문장
 - period 예: "2021.01 ~ 재직중"
+- period의 시작일은 종료일보다 반드시 이전이어야 한다. (같거나 더 늦으면 isComplete=false)
 - leavingReason은 "재직중" 또는 퇴사 사유
 - missingInfo: 아래 필수 항목 중 입력에서 확인되지 않는 항목이 있다면,
   사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
