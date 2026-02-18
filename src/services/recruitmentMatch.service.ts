@@ -206,6 +206,81 @@ function extractRegion(address: string) {
   return "";
 }
 
+function tokenizeKeywords(value: string, max = 8) {
+  return normalize(value)
+    .toLowerCase()
+    .split(/[\s,./()\-_[\]{}|:;'"`~!@#$%^&*+=?<>\\]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .slice(0, max);
+}
+
+function countKeywordHits(text: string, keywords: string[]) {
+  if (keywords.length === 0) return 0;
+  const target = normalize(text).toLowerCase();
+  let hits = 0;
+  for (const keyword of keywords) {
+    if (target.includes(keyword)) hits += 1;
+  }
+  return hits;
+}
+
+function matchesDesiredJob(job: RecruitmentItem, resume: ResumeFormatResult) {
+  const keywords = tokenizeKeywords(resume.desiredJob);
+  if (keywords.length === 0) return true;
+
+  const targetText = [
+    normalize(job.recrutPbancTtl),
+    normalize(job.ncsCdNmLst),
+    normalize(job.aplyQlfcCn),
+    normalize(job.prefCn),
+    normalize(job.recrutSeNm),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return countKeywordHits(targetText, keywords) > 0;
+}
+
+function computeRuleScore(job: RecruitmentItem, resume: ResumeFormatResult) {
+  const desiredKeywords = tokenizeKeywords(resume.desiredJob);
+  const targetText = [
+    normalize(job.recrutPbancTtl),
+    normalize(job.ncsCdNmLst),
+    normalize(job.aplyQlfcCn),
+    normalize(job.prefCn),
+    normalize(job.recrutSeNm),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const keywordHits = countKeywordHits(targetText, desiredKeywords);
+  const keywordScore =
+    desiredKeywords.length === 0
+      ? 20
+      : Math.round((Math.min(keywordHits, desiredKeywords.length) / desiredKeywords.length) * 40);
+
+  const educationScore = matchesEducation(job, resume) ? 20 : 0;
+  const careerScore = matchesCareer(job, resume) ? 20 : 0;
+  const regionScore = matchesRegion(job, resume) ? 20 : 0;
+
+  const total = Math.max(0, Math.min(100, keywordScore + educationScore + careerScore + regionScore));
+  return total;
+}
+
+function buildRuleReason(job: RecruitmentItem, resume: ResumeFormatResult) {
+  const reasons: string[] = [];
+  if (matchesDesiredJob(job, resume)) reasons.push("희망 직무 키워드");
+  if (matchesRegion(job, resume)) reasons.push("지역");
+  if (matchesCareer(job, resume)) reasons.push("경력 조건");
+  if (matchesEducation(job, resume)) reasons.push("학력 조건");
+
+  if (reasons.length === 0) {
+    return "기본 요건 일치도가 낮아 추가 확인이 필요합니다.";
+  }
+  return `${reasons.join(", ")} 기준으로 기본 적합도가 높습니다.`;
+}
+
 function matchesEducation(job: RecruitmentItem, resume: ResumeFormatResult) {
   const condition = normalize(job.acbgCondNmLst);
   if (!condition || condition.includes("학력무관")) return true;
@@ -613,16 +688,21 @@ async function performRecruitmentSync(): Promise<RecruitmentSyncResult> {
     pageNo += 1;
   }
 
-  const deactivated = await prisma.recruitmentPosting.updateMany({
-    where: { lastSeenAt: { lt: syncStartedAt }, isActive: true },
-    data: { isActive: false, isOngoing: false },
-  });
+  const syncCompleted = totalCount > 0 && totalFetched >= totalCount;
+  let deactivatedCount = 0;
+  if (syncCompleted) {
+    const deactivated = await prisma.recruitmentPosting.updateMany({
+      where: { lastSeenAt: { lt: syncStartedAt }, isActive: true },
+      data: { isActive: false, isOngoing: false },
+    });
+    deactivatedCount = deactivated.count;
+  }
 
   return {
     totalFetched,
     inserted,
     updated,
-    deactivated: deactivated.count,
+    deactivated: deactivatedCount,
     pageCount,
     syncedAt: syncStartedAt.toISOString(),
   };
@@ -719,11 +799,11 @@ export async function matchRecruitments(
   const minRows = safeOffset + safeLimit;
   const candidateLimitFromEnv = parsePositiveInt(
     process.env.RECRUITMENT_MATCH_CANDIDATE_LIMIT,
-    500
+    3000
   );
   const candidateLimit = Math.max(
-    50,
-    Math.min(Math.max(minRows, safeLimit), Math.max(candidateLimitFromEnv, 50))
+    200,
+    Math.min(Math.max(minRows * 5, 1000), Math.max(candidateLimitFromEnv, 200))
   );
 
   const postings = await prisma.recruitmentPosting.findMany({
@@ -781,19 +861,37 @@ export async function matchRecruitments(
 
   const filtered = rawList.filter((item) => {
     return (
+      matchesDesiredJob(item, resume) &&
       matchesEducation(item, resume) &&
       matchesCareer(item, resume) &&
       matchesRegion(item, resume)
     );
   });
 
+  const prelim = filtered
+    .map((item) => ({
+      item,
+      ruleScore: computeRuleScore(item, resume),
+      ruleReason: buildRuleReason(item, resume),
+    }))
+    .sort((a, b) => {
+      if (b.ruleScore !== a.ruleScore) return b.ruleScore - a.ruleScore;
+      const aEnd = normalize(a.item.pbancEndYmd);
+      const bEnd = normalize(b.item.pbancEndYmd);
+      return aEnd.localeCompare(bEnd, "ko");
+    });
+
   const profileSummary = buildProfileSummary(resume, coverLetter);
 
   const chunkSizeFromEnv = Number(process.env.RECRUITMENT_MATCH_BATCH_LIMIT ?? "20");
   const chunkSize =
     Number.isFinite(chunkSizeFromEnv) && chunkSizeFromEnv > 0 ? chunkSizeFromEnv : 20;
-  const scoreTargetCount = Math.min(filtered.length, safeOffset + safeLimit);
-  const scoreTargets = filtered.slice(0, scoreTargetCount);
+  const aiTargetLimit = parsePositiveInt(process.env.RECRUITMENT_MATCH_AI_TARGET_LIMIT, 200);
+  const scoreTargetCount = Math.min(
+    prelim.length,
+    Math.max(safeOffset + safeLimit * 5, Math.max(aiTargetLimit, 50))
+  );
+  const scoreTargets = prelim.slice(0, scoreTargetCount).map((entry) => entry.item);
   const scoreMap: Record<number, { matchScore: number; matchReason: string }> = {};
 
   for (let i = 0; i < scoreTargets.length; i += chunkSize) {
@@ -802,18 +900,17 @@ export async function matchRecruitments(
     Object.assign(scoreMap, chunkScoreMap);
   }
 
-  // 점수가 계산된 항목만 추천 리스트에 포함한다.
-  const scored: ScoredRecruitment[] = filtered
-    .map((item) => {
-      const score = scoreMap[item.recrutPblntSn];
-      if (!score) return null;
-      return {
-        ...item,
-        matchScore: score.matchScore,
-        matchReason: score.matchReason,
-      };
-    })
-    .filter((item): item is ScoredRecruitment => item !== null);
+  const scored: ScoredRecruitment[] = prelim.map((entry) => {
+    const aiScore = scoreMap[entry.item.recrutPblntSn];
+    const finalScore = aiScore
+      ? Math.round(aiScore.matchScore * 0.8 + entry.ruleScore * 0.2)
+      : entry.ruleScore;
+    return {
+      ...entry.item,
+      matchScore: Math.max(0, Math.min(100, finalScore)),
+      matchReason: aiScore?.matchReason || entry.ruleReason,
+    };
+  });
 
   scored.sort((a, b) => b.matchScore - a.matchScore);
   const slice = scored.slice(safeOffset, safeOffset + safeLimit);
