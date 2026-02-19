@@ -37,6 +37,11 @@ export async function recommendEducationFromDescription(
 
 반드시 아래 JSON 형식으로만 출력해. (추가 텍스트/설명 절대 금지)
 {
+  "schoolName": string,
+  "major": string,
+  "period": string,
+  "graduationStatus": string,
+  "details": string,
   "fullDescription": string,
   "missingInfo": string,
   "isComplete": boolean
@@ -58,6 +63,12 @@ export async function recommendEducationFromDescription(
   부족한 항목이 없다면 빈 문자열("").
 - missingInfo는 친절한 대화체의 한 문장으로 작성하고, 가능하면 사용자가 입력한 표현을 일부 반영한다.
 - 필수 항목: schoolName, major, period, graduationStatus, details.
+- 완료 판정 규칙(매우 중요):
+  1) schoolName, major, period, graduationStatus, details 5개가 모두 사용자 입력에서 확인될 때만 isComplete=true.
+  2) 하나라도 없거나 모호하면 isComplete=false.
+  3) period 형식이 맞지 않거나 시작일이 종료일보다 늦으면 isComplete=false.
+  4) isComplete=true 인 경우 missingInfo는 반드시 빈 문자열("").
+  5) isComplete=false 인 경우 missingInfo는 반드시 비어 있지 않아야 하며, 가장 우선순위 높은 누락 1개만 질문한다.
 - 입력 길이가 5자 미만이면 missingInfo에 "학력 정보를 5글자 이상 입력해주세요."를 출력하고
   fullDescription은 반드시 빈 문자열("")로 둔다.
 - 필수 항목이 일부 부족하더라도, 입력에 포함된 정보만으로 fullDescription을 최대한 작성한다.
@@ -97,14 +108,15 @@ export async function recommendEducationFromDescription(
   }
 
   const missingInfo = String(parsed.missingInfo ?? "");
+  const normalizedMissingInfo = missingInfo.trim();
   const isComplete =
     typeof parsed.isComplete === "boolean"
       ? parsed.isComplete
-      : missingInfo.trim().length === 0;
+      : normalizedMissingInfo.length === 0;
 
   return {
-    fullDescription: String(parsed.fullDescription ?? ""),
-    missingInfo,
+    fullDescription: String(parsed.fullDescription ?? "").trim(),
+    missingInfo: normalizedMissingInfo,
     isComplete,
   };
 }

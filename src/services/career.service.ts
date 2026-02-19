@@ -7,6 +7,13 @@ export type CareerResult = {
   isComplete: boolean;
 };
 
+function normalizeFullDescription(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 export async function recommendCareerFromInput(
   userInput: string
 ): Promise<CareerResult> {
@@ -37,6 +44,10 @@ export async function recommendCareerFromInput(
 추가 설명이나 마크다운 없이 JSON만 출력해.
 
 {
+  "companyName": string,
+  "period": string,
+  "mainTask": string,
+  "leavingReason": string,
   "fullDescription": string,
   "missingInfo": string,
   "isComplete": boolean
@@ -44,6 +55,7 @@ export async function recommendCareerFromInput(
 
 규칙:
 - fullDescription은 줄바꿈 포함 이력서용 문장
+- fullDescription에서 동일 항목 내부 구분은 빈 줄 없이 "\\n" 하나만 사용한다.
 - period 예: "2021.01 ~ 재직중"
 - period의 시작일은 종료일보다 반드시 이전이어야 한다. (같거나 더 늦으면 isComplete=false)
 - leavingReason은 "재직중" 또는 퇴사 사유
@@ -52,6 +64,12 @@ export async function recommendCareerFromInput(
   부족한 항목이 없다면 빈 문자열("").
 - missingInfo는 친절한 대화체의 한 문장으로 작성하고, 가능하면 사용자가 입력한 표현을 일부 반영한다.
 - 필수 항목: companyName, period, mainTask, leavingReason.
+- 완료 판정 규칙(매우 중요):
+  1) companyName, period, mainTask, leavingReason 4개가 모두 사용자 입력에서 확인될 때만 isComplete=true.
+  2) 하나라도 없거나 모호하면 isComplete=false.
+  3) period 형식이 맞지 않거나 시작일이 종료일보다 늦으면 isComplete=false.
+  4) isComplete=true 인 경우 missingInfo는 반드시 빈 문자열("").
+  5) isComplete=false 인 경우 missingInfo는 반드시 비어 있지 않아야 하며, 가장 우선순위 높은 누락 1개만 질문한다.
 - 입력 길이가 5자 미만이면 missingInfo에 "경력 정보를 5글자 이상 입력해주세요."를 출력하고
   fullDescription은 반드시 빈 문자열("")로 둔다.
 - 필수 항목이 일부 부족하더라도, 입력에 포함된 정보만으로 fullDescription을 최대한 작성한다.
@@ -77,13 +95,13 @@ export async function recommendCareerFromInput(
 
   try {
     const parsed = JSON.parse(cleaned);
-    const missingInfo = String(parsed.missingInfo ?? "");
+    const missingInfo = String(parsed.missingInfo ?? "").trim();
     const isComplete =
       typeof parsed.isComplete === "boolean"
         ? parsed.isComplete
-        : missingInfo.trim().length === 0;
+        : missingInfo.length === 0;
     return {
-      fullDescription: String(parsed.fullDescription ?? ""),
+      fullDescription: normalizeFullDescription(parsed.fullDescription),
       missingInfo,
       isComplete,
     };

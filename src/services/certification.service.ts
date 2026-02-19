@@ -25,6 +25,9 @@ export async function recommendCertificationFromInput(
 
 반드시 아래 JSON 형식으로만 출력해. (추가 텍스트 절대 금지)
 {
+  "certificationName": string,
+  "period": string,
+  "institution": string,
   "fullDescription": string,
   "missingInfo": string,
   "isComplete": boolean
@@ -34,14 +37,20 @@ export async function recommendCertificationFromInput(
 - fullDescription은 반드시 줄바꿈 포함 가능한 1~3줄 형식으로 작성해.
   예) "정보처리기사 (2023.05)\\n- 발급기관: 한국산업인력공단"
   예) "TOEIC 900 (2023.08)\\n- 주관: ETS"
-- period: "YYYY.MM" 또는 "YYYY.MM ~ YYYY.MM" (정확히 없으면 "미상")
+- period: "YYYY.MM" 또는 "YYYY.MM ~ YYYY.MM" (없거나 모호하면 빈 문자열(""))
 - certificationName: 자격증명/시험명/어학시험명
-- institution: 발급기관/주관기관 (없으면 "미상")
+- institution: 발급기관/주관기관 (입력 근거가 없으면 빈 문자열(""))
 - missingInfo: 아래 필수 항목 중 입력에서 확인되지 않는 항목이 있다면,
   사용자가 추가로 입력할 수 있도록 자연스러운 질문/요청 문장으로 작성.
   부족한 항목이 없다면 빈 문자열("").
 - missingInfo는 친절한 대화체의 한 문장으로 작성하고, 가능하면 사용자가 입력한 표현을 일부 반영한다.
 - 필수 항목: certificationName, period, institution.
+- 완료 판정 규칙(매우 중요):
+  1) certificationName, period, institution 3개가 모두 사용자 입력에서 확인될 때만 isComplete=true.
+  2) 하나라도 없거나 모호하면 isComplete=false.
+  3) period 형식이 맞지 않으면 isComplete=false.
+  4) isComplete=true 인 경우 missingInfo는 반드시 빈 문자열("").
+  5) isComplete=false 인 경우 missingInfo는 반드시 비어 있지 않아야 하며, 가장 우선순위 높은 누락 1개만 질문한다.
 - 입력 길이가 5자 미만이면 missingInfo에 "자격증/어학 정보를 5글자 이상 입력해주세요."를 출력하고
   fullDescription은 반드시 빈 문자열("")로 둔다.
 - 필수 항목이 일부 부족하더라도, 입력에 포함된 정보만으로 fullDescription을 최대한 작성한다.
@@ -64,13 +73,13 @@ export async function recommendCertificationFromInput(
   try {
     const parsed = JSON.parse(cleaned);
 
-    const missingInfo = String(parsed.missingInfo ?? "");
+    const missingInfo = String(parsed.missingInfo ?? "").trim();
     const isComplete =
       typeof parsed.isComplete === "boolean"
         ? parsed.isComplete
-        : missingInfo.trim().length === 0;
+        : missingInfo.length === 0;
     return {
-      fullDescription: String(parsed.fullDescription ?? ""),
+      fullDescription: String(parsed.fullDescription ?? "").trim(),
       missingInfo,
       isComplete,
     };
