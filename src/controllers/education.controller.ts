@@ -42,7 +42,7 @@ export async function recommendEducationController(
     await saveRecommendState(
       req.sessionId,
       RecommendSection.EDUCATION,
-      mergedDescription
+      data.isComplete ? "" : mergedDescription
     );
     return res.json(data);
   } catch (err) {

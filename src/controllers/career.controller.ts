@@ -33,7 +33,11 @@ export async function recommendCareerController(req: Request, res: Response) {
       .filter((value) => typeof value === "string" && value.trim().length > 0)
       .join("\n");
     const result = await recommendCareerFromInput(mergedInput);
-    await saveRecommendState(req.sessionId, RecommendSection.CAREER, mergedInput);
+    await saveRecommendState(
+      req.sessionId,
+      RecommendSection.CAREER,
+      result.isComplete ? "" : mergedInput
+    );
     return res.json(result);
   } catch (e: any) {
     console.error("[Career AI Error]", e);

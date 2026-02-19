@@ -36,7 +36,7 @@ export async function recommendCertificationController(req: Request, res: Respon
     await saveRecommendState(
       req.sessionId,
       RecommendSection.CERTIFICATION,
-      mergedInput
+      data.isComplete ? "" : mergedInput
     );
     return res.json(data);
   } catch (e) {

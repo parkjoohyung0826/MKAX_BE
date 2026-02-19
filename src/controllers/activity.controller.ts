@@ -34,7 +34,11 @@ export async function recommendActivityController(req: Request, res: Response) {
       .filter((value) => typeof value === "string" && value.trim().length > 0)
       .join("\n");
     const data = await recommendActivityFromUserInput(mergedInput);
-    await saveRecommendState(req.sessionId, RecommendSection.ACTIVITY, mergedInput);
+    await saveRecommendState(
+      req.sessionId,
+      RecommendSection.ACTIVITY,
+      data.isComplete ? "" : mergedInput
+    );
 
     // 로그 확인하고 싶으면 여기서 찍는 게 제일 확실함
     console.log("[POST /api/recommend/activity] ok");
