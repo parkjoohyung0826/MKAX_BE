@@ -6,6 +6,7 @@ import { createAccessCode, findAccessCode } from "../repositories/accessCode.rep
 import { getCoverLetterState } from "../repositories/archive.repository";
 
 const ResumeFormatSchema = z.object({
+  resumeType: z.enum(["basic", "senior"]).optional().default("basic"),
   name: z.string().max(100),
   englishName: z.string().max(100),
   dateOfBirth: z.string().max(50),
@@ -52,6 +53,7 @@ export async function formatResumeController(
       (await getCoverLetterState(req.sessionId));
     const payload = {
       sessionId: req.sessionId,
+      resumeType: parsed.data.resumeType,
       resume: data,
       coverLetter,
       issuedAt: new Date().toISOString(),
@@ -67,6 +69,7 @@ export async function formatResumeController(
     await createAccessCode(code, payload);
 
     return res.json({
+      resumeType: parsed.data.resumeType,
       resume: data,
       coverLetter,
       code,
