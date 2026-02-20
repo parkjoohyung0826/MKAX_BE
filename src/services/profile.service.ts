@@ -14,6 +14,8 @@ export type RecommendProfileResult = {
 };
 
 type ProfileFields = Omit<RecommendProfileResult, "missingInfo" | "isComplete">;
+const PHOTO_INPUT_GUIDE =
+  "프로필 정보 입력이 완료됐어요. 사진은 챗봇이 아닌 직접 입력 모드에서 추가해주세요. 사진 입력 방법을 물어보시면 직접 입력 모드에서 등록하시면 된다고 안내드릴게요.";
 
 function normalize(value: unknown): string {
   return String(value ?? "").trim();
@@ -73,11 +75,14 @@ export async function recommendProfileFromDescription(
 - dateOfBirth는 "YYYY.MM.DD" 형식을 우선 사용.
 - email은 표준 이메일 형식.
 - phoneNumber/emergencyContact는 숫자와 하이픈을 포함한 전화번호 형식.
+- 사진(photo)은 이 챗봇 단계에서 수집하지 않는다.
 - missingInfo는 아래 순서를 따르는 단일 질문 문장으로 작성해.
   순서: name → englishName → dateOfBirth → email → phoneNumber → emergencyContact → address → desiredJob
 - 한 번에 하나의 정보만 요청한다. (모든 정보를 한꺼번에 요청 금지)
 - 입력이 유효하지 않거나 형식이 잘못된 경우, 해당 항목을 다시 입력해달라고 질문한다.
 - missingInfo는 친절하고 자연스러운 한국어 문장으로 작성한다.
+- 사용자가 사진/증명사진/프로필 이미지 입력 방법을 물어보면
+  "사진은 직접 입력 모드에서 추가해주세요."라는 뜻이 반드시 포함되도록 답한다.
 - 모든 항목이 유효하면 missingInfo는 빈 문자열("")이고 isComplete는 true.
 - 정보가 부족하면 isComplete는 false.
 `;
@@ -197,5 +202,6 @@ export async function recommendProfileFromDescription(
   }
 
   resultData.isComplete = true;
+  resultData.missingInfo = PHOTO_INPUT_GUIDE;
   return resultData;
 }
