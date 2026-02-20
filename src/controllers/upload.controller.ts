@@ -51,7 +51,12 @@ export async function createPhotoUploadUrlController(
       contentType,
     });
 
-    const viewUrl = `https://storage.googleapis.com/${bucketName}/${objectPath}`;
+    const [viewUrl] = await file.getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + 24 * 60 * 60 * 1000,
+    });
+
     return res.status(200).json({ uploadUrl, viewUrl, objectPath });
   } catch (err) {
     return next(err);
