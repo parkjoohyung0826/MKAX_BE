@@ -12,10 +12,11 @@ const allowedSections: CoverLetterSection[] = [
 export class CoverLetterController {
   static async createDraft(req: Request, res: Response, next: NextFunction) {
     try {
-      const { section, userInput, desiredJob } = req.body as {
+      const { section, userInput, desiredJob, mode } = req.body as {
         section?: CoverLetterSection;
         userInput?: string;
         desiredJob?: string;
+        mode?: "basic" | "senior";
       };
 
       if (!section || !allowedSections.includes(section)) {
@@ -30,6 +31,7 @@ export class CoverLetterController {
         section,
         userInput,
         desiredJob,
+        mode,
       });
 
       return res.status(200).json(result);

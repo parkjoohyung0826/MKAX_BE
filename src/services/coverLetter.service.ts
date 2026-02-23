@@ -5,15 +5,22 @@ type DraftRequest = {
   section: CoverLetterSection;
   userInput: string;
   desiredJob?: string;
+  mode?: "basic" | "senior";
 };
 
 export class CoverLetterService {
-  static async generateDraft({ section, userInput, desiredJob }: DraftRequest) {
+  static async generateDraft({
+    section,
+    userInput,
+    desiredJob,
+    mode = "basic",
+  }: DraftRequest) {
     const trimmedInput = userInput.trim();
     if (trimmedInput.length < 5) {
       return {
         fullDescription: "",
         section,
+        mode,
         missingInfo: "자기소개서 내용을 5글자 이상 입력해주세요.",
         isComplete: false,
       };
@@ -22,6 +29,7 @@ export class CoverLetterService {
       return {
         fullDescription: "",
         section,
+        mode,
         missingInfo: "올바른 내용을 입력해주세요.",
         isComplete: false,
       };
@@ -29,19 +37,21 @@ export class CoverLetterService {
     const relevance = await evaluateSectionRelevance(
       section,
       trimmedInput,
-      desiredJob
+      desiredJob,
+      mode
     );
     if (!relevance.isRelevant) {
       return {
         fullDescription: "",
         section,
+        mode,
         missingInfo:
           relevance.missingInfo || "문항에 맞는 내용을 입력해주세요.",
         isComplete: false,
       };
     }
 
-    const prompt = buildPrompt(section, userInput, desiredJob);
+    const prompt = buildPrompt(section, userInput, desiredJob, mode);
 
     const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     const result = await model.generateContent(prompt);
@@ -52,6 +62,7 @@ export class CoverLetterService {
     return {
       fullDescription,
       section,
+      mode,
       missingInfo: fullDescription.length === 0 ? "올바른 내용을 입력해주세요." : "",
       isComplete: fullDescription.length > 0,
     };
@@ -71,7 +82,8 @@ function isLikelyMeaningful(value: string) {
 async function evaluateSectionRelevance(
   section: CoverLetterSection,
   userInput: string,
-  desiredJob?: string
+  desiredJob?: string,
+  mode: "basic" | "senior" = "basic"
 ): Promise<{ isRelevant: boolean; missingInfo: string }> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   const jobLine = desiredJob ? `지원 직무: ${desiredJob}` : "지원 직무: 미상";
@@ -94,6 +106,7 @@ async function evaluateSectionRelevance(
 `;
   const userPrompt = `
 문항: ${section}
+모드: ${mode}
 ${jobLine}
 사용자 입력:
 """${userInput}"""
@@ -121,7 +134,8 @@ ${jobLine}
 function buildPrompt(
   section: CoverLetterSection,
   userInput: string,
-  desiredJob?: string
+  desiredJob?: string,
+  mode: "basic" | "senior" = "basic"
 ) {
   const jobLine = desiredJob ? `- 지원 직무: ${desiredJob}\n` : "";
 
@@ -138,6 +152,65 @@ ${jobLine}
 사용자 입력:
 """${userInput}"""
 `.trim();
+
+  if (mode === "senior") {
+    switch (section) {
+      case "GROWTH_PROCESS":
+        return `
+${common}
+
+문항: 경력 요약 및 인생관 (시니어)
+포인트:
+- 가장 오래 근무했거나 핵심이었던 직무/업무 경력 요약
+- 오래 일하며 지켜온 원칙/인생관(시간 엄수, 정직, 안전, 책임감 등)
+- 이를 보여주는 구체적 사례 1개
+- 현재 지원 업무에 연결되는 신뢰 요소(성실성/책임감/안정감)
+분량: 7~10문장 내
+`.trim();
+
+      case "PERSONALITY":
+        return `
+${common}
+
+문항: 조직 융화력 및 소통 태도 (시니어)
+포인트:
+- 젊은 동료/상사와의 소통 태도(경청, 존중, 협업) 강조
+- 조직 융화 또는 갈등 완화 사례 1개
+- 동료 배려/책임감/팀 기여 방식
+- 단점 중심 서술은 피하고 협업 안정감 중심으로 작성
+분량: 7~10문장 내
+`.trim();
+
+      case "CAREER_STRENGTH":
+        return `
+${common}
+
+문항: 핵심 역량 및 보유 기술 (시니어)
+포인트:
+- 지원 업무에 바로 활용 가능한 자격증/기술/실무 능력
+- 과거 경력에서 전이 가능한 역량(고객응대, 기록관리, 안전의식, 책임감 등)
+- 구체적 사례 1~2개로 즉시 투입 가능성 강조
+- 직종 전환이라도 새 업무에 도움이 되는 노하우 연결
+분량: 8~11문장 내
+`.trim();
+
+      case "MOTIVATION_ASPIRATION":
+        return `
+${common}
+
+문항: 지원 동기 및 근무 각오 (건강/성실) (시니어)
+포인트:
+- 왜 이 업무를 지원하는지 (현실적이고 구체적인 이유)
+- 성실 근무 의지/근태/책임감 근거
+- 건강 관리 습관 또는 현장 근무 가능 체력
+- 새로운 업무 방식/기계/스마트폰 등 디지털 적응 태도
+분량: 7~10문장 내
+`.trim();
+
+      default:
+        return common;
+    }
+  }
 
   switch (section) {
     case "GROWTH_PROCESS":
