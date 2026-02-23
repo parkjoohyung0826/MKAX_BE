@@ -8,7 +8,10 @@ import {
   matchRecruitments,
   syncRecruitmentPostings,
 } from "../services/recruitmentMatch.service";
-import { ResumeFormatResult } from "../services/resumeFormat.service";
+import {
+  formatResumeFromExtractedText,
+  ResumeFormatResult,
+} from "../services/resumeFormat.service";
 
 const MatchSchema = z.object({
   code: z.string().min(4),
@@ -111,11 +114,39 @@ export async function matchRecruitmentsController(
     }
 
     const storedPayload = record.payload as Record<string, unknown>;
-    const resume = storedPayload.resume as ResumeFormatResult | undefined;
+    let resume = storedPayload.resume as ResumeFormatResult | undefined;
     const coverLetter = storedPayload.coverLetter as Record<string, string> | undefined;
 
     if (!resume) {
-      return res.status(400).json({ message: "이력서 데이터가 없습니다." });
+      const extractedTexts = storedPayload.analysisReportExtractedTexts as
+        | { resumeText?: string; coverLetterText?: string }
+        | undefined;
+      const extractedResumeText =
+        typeof extractedTexts?.resumeText === "string"
+          ? extractedTexts.resumeText
+          : "";
+
+      if (extractedResumeText.trim()) {
+        resume = await formatResumeFromExtractedText(extractedResumeText);
+
+        const basePayload =
+          record.payload &&
+          typeof record.payload === "object" &&
+          !Array.isArray(record.payload)
+            ? record.payload
+            : {};
+        const updatedPayload: Prisma.InputJsonValue = {
+          ...(basePayload as Record<string, unknown>),
+          resume,
+          resumeDerivedFromPdf: true,
+          resumeDerivedAt: new Date().toISOString(),
+        };
+        await updateAccessCode(parsed.data.code, updatedPayload);
+      }
+    }
+
+    if (!resume) {
+      return res.status(400).json({ message: "이력서 데이터가 없습니다. (PDF 분석 결과에는 추출 텍스트 저장이 필요합니다.)" });
     }
 
     const offset = parsed.data.offset ?? 0;

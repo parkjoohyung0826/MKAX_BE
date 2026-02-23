@@ -118,6 +118,10 @@ export async function analyzeReportFromPdfFiles(
 
   return {
     report,
+    extractedTexts: {
+      resumeText,
+      coverLetterText,
+    },
     sources: {
       resume: resumeGcs ?? undefined,
       coverLetter: coverLetterGcs ?? undefined,

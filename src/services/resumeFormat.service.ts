@@ -212,3 +212,157 @@ export async function formatResumeData(
       : [],
   };
 }
+
+export async function formatResumeFromExtractedText(
+  resumeText: string
+): Promise<ResumeFormatResult> {
+  const text = normalize(resumeText);
+  if (!text) {
+    return {
+      name: "",
+      englishName: "",
+      dateOfBirth: "",
+      email: "",
+      phoneNumber: "",
+      emergencyContact: "",
+      address: "",
+      photo: "",
+      desiredJob: "",
+      education: [],
+      workExperience: [],
+      coreCompetencies: [],
+      certifications: [],
+    };
+  }
+
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const systemPrompt = `
+너는 OCR로 추출된 이력서 텍스트를 채용 매칭용 구조화 JSON으로 변환하는 도우미야.
+출력은 반드시 JSON만 허용한다.
+
+{
+  "name": string,
+  "englishName": string,
+  "dateOfBirth": string,
+  "email": string,
+  "phoneNumber": string,
+  "emergencyContact": string,
+  "address": string,
+  "photo": string,
+  "desiredJob": string,
+  "education": [
+    {
+      "schoolName": string,
+      "major": string,
+      "period": string,
+      "graduationStatus": string,
+      "details": string
+    }
+  ],
+  "workExperience": [
+    {
+      "companyName": string,
+      "period": string,
+      "mainTask": string,
+      "leavingReason": string
+    }
+  ],
+  "coreCompetencies": [
+    {
+      "fullDescription": string,
+      "period": string,
+      "courseName": string,
+      "institution": string
+    }
+  ],
+  "certifications": [
+    {
+      "certificationName": string,
+      "period": string,
+      "institution": string
+    }
+  ]
+}
+
+규칙:
+- OCR 오탈자를 감안하되 과도한 추정 금지.
+- 없는 정보는 빈 문자열("") 또는 빈 배열([])로 둔다.
+- 채용 매칭에 중요한 desiredJob, address, workExperience, certifications를 우선 추출한다.
+- photo는 항상 빈 문자열("")로 둔다.
+`;
+
+  try {
+    const result = await model.generateContent([
+      systemPrompt,
+      `resumeText: ${JSON.stringify(text)}`,
+    ]);
+    const raw = result.response.text();
+    const cleaned = raw
+      .trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+    const parsed = JSON.parse(cleaned);
+
+    return {
+      name: normalize(parsed.name),
+      englishName: normalize(parsed.englishName),
+      dateOfBirth: normalize(parsed.dateOfBirth),
+      email: normalize(parsed.email),
+      phoneNumber: normalize(parsed.phoneNumber),
+      emergencyContact: normalize(parsed.emergencyContact),
+      address: normalize(parsed.address),
+      photo: "",
+      desiredJob: normalize(parsed.desiredJob),
+      education: Array.isArray(parsed.education)
+        ? parsed.education.map((item: any) => ({
+            schoolName: normalize(item?.schoolName),
+            major: normalize(item?.major),
+            period: normalize(item?.period),
+            graduationStatus: normalize(item?.graduationStatus),
+            details: normalize(item?.details),
+          }))
+        : [],
+      workExperience: Array.isArray(parsed.workExperience)
+        ? parsed.workExperience.map((item: any) => ({
+            companyName: normalize(item?.companyName),
+            period: normalize(item?.period),
+            mainTask: normalize(item?.mainTask),
+            leavingReason: normalize(item?.leavingReason),
+          }))
+        : [],
+      coreCompetencies: Array.isArray(parsed.coreCompetencies)
+        ? parsed.coreCompetencies.map((item: any) => ({
+            fullDescription: normalize(item?.fullDescription),
+            period: normalize(item?.period),
+            courseName: normalize(item?.courseName),
+            institution: normalize(item?.institution),
+          }))
+        : [],
+      certifications: Array.isArray(parsed.certifications)
+        ? parsed.certifications.map((item: any) => ({
+            certificationName: normalize(item?.certificationName),
+            period: normalize(item?.period),
+            institution: normalize(item?.institution),
+          }))
+        : [],
+    };
+  } catch {
+    return {
+      name: "",
+      englishName: "",
+      dateOfBirth: "",
+      email: "",
+      phoneNumber: "",
+      emergencyContact: "",
+      address: "",
+      photo: "",
+      desiredJob: "",
+      education: [],
+      workExperience: [],
+      coreCompetencies: [],
+      certifications: [],
+    };
+  }
+}

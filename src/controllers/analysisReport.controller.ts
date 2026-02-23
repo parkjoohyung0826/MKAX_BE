@@ -155,7 +155,7 @@ export async function analysisReportPdfController(
       });
     }
 
-    const { report, sources, sourceUrls } = await analyzeReportFromPdfFiles(
+    const { report, extractedTexts, sources, sourceUrls } = await analyzeReportFromPdfFiles(
       resumeFile,
       coverLetterFile
     );
@@ -173,6 +173,7 @@ export async function analysisReportPdfController(
       analysisReportIssuedAt: new Date().toISOString(),
       analysisReportSources: sources,
       analysisReportSourceUrls: sourceUrls,
+      analysisReportExtractedTexts: extractedTexts,
       analysisReportSourceType: "pdf",
     };
     await updateAccessCode(code, payload);
