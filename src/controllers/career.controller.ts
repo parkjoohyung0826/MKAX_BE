@@ -3,40 +3,34 @@ import { z } from "zod";
 import { recommendCareerFromInput } from "../services/career.service";
 import { RecommendSection } from "@prisma/client";
 import {
-  getRecommendState,
-  saveRecommendState,
-} from "../repositories/recommendChat.repository";
+  buildMergedRecommendInput,
+  parseRequestBody,
+  requireSessionId,
+  saveRecommendAccumulatedInput,
+} from "../common/controllerHelpers";
 
 const CareerSchema = z.object({
   userInput: z.string(),
 });
 
 export async function recommendCareerController(req: Request, res: Response) {
-  const parsed = CareerSchema.safeParse(req.body);
-
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+  const bodyData = parseRequestBody(CareerSchema, req, res);
+  if (!bodyData) return;
 
   try {
-    if (!req.sessionId) {
-      return res.status(400).json({ message: "sessionId가 필요합니다." });
-    }
-    const stored = await getRecommendState(
-      req.sessionId,
-      RecommendSection.CAREER
-    );
-    const mergedInput = [stored?.accumulatedInput, parsed.data.userInput]
-      .filter((value) => typeof value === "string" && value.trim().length > 0)
-      .join("\n");
-    const result = await recommendCareerFromInput(mergedInput);
-    await saveRecommendState(
-      req.sessionId,
+    const sessionId = requireSessionId(req, res);
+    if (!sessionId) return;
+    const mergedInput = await buildMergedRecommendInput(
+      sessionId,
       RecommendSection.CAREER,
-      result.isComplete ? "" : mergedInput
+      bodyData.userInput
+    );
+    const result = await recommendCareerFromInput(mergedInput);
+    await saveRecommendAccumulatedInput(
+      sessionId,
+      RecommendSection.CAREER,
+      mergedInput,
+      result.isComplete
     );
     return res.json(result);
   } catch (e: any) {

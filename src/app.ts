@@ -25,8 +25,6 @@ import { anonymousSession } from "./middlewares/anonymousSession";
 
 const app = express();
 
-app.use(errorHandler);
-
 const corsOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map((value) => value.trim())
   : true;
@@ -34,26 +32,29 @@ app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json({ limit: "3mb" }));
 app.use(anonymousSession);
 
-app.use("/items", itemRoutes);
-app.use("/api/recommend", jobRoutes);
-app.use("/api/recommend", educationRoutes);
-app.use("/api/recommend", careerRoutes);
-app.use("/api/recommend", activityRoutes);
-app.use("/api/recommend", certificationRoutes);
-app.use("/api/recommend", profileRoutes);
-app.use("/api/recommend", resumeFormatRoutes);
-app.use("/api/report", analysisReportRoutes);
-app.use("/api/report", recruitmentMatchRoutes);
-app.use("/api/recommend", recommendChatRoutes);
-app.use("/api/cover-letter", coverLetterRoutes);
-app.use("/api/cover-letter", growthProcessChatRoutes);
-app.use("/api/cover-letter", personalityChatRoutes);
-app.use("/api/cover-letter", careerStrengthChatRoutes);
-app.use("/api/cover-letter", motivationAspirationChatRoutes);
-app.use("/api/cover-letter", coverLetterChatRoutes);
-app.use("/api/archive", archiveRoutes);
-app.use("/api/uploads", uploadRoutes);
-
+([
+  ["/items", itemRoutes],
+  ["/api/recommend", jobRoutes],
+  ["/api/recommend", educationRoutes],
+  ["/api/recommend", careerRoutes],
+  ["/api/recommend", activityRoutes],
+  ["/api/recommend", certificationRoutes],
+  ["/api/recommend", profileRoutes],
+  ["/api/recommend", resumeFormatRoutes],
+  ["/api/report", analysisReportRoutes],
+  ["/api/report", recruitmentMatchRoutes],
+  ["/api/recommend", recommendChatRoutes],
+  ["/api/cover-letter", coverLetterRoutes],
+  ["/api/cover-letter", growthProcessChatRoutes],
+  ["/api/cover-letter", personalityChatRoutes],
+  ["/api/cover-letter", careerStrengthChatRoutes],
+  ["/api/cover-letter", motivationAspirationChatRoutes],
+  ["/api/cover-letter", coverLetterChatRoutes],
+  ["/api/archive", archiveRoutes],
+  ["/api/uploads", uploadRoutes],
+] as const).forEach(([path, router]) => {
+  app.use(path, router);
+});
 
 app.use(errorHandler);
 

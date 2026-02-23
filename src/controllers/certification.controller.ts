@@ -6,42 +6,36 @@ import {
 } from "../services/certification.service";
 import { RecommendSection } from "@prisma/client";
 import {
-  getRecommendState,
-  saveRecommendState,
-} from "../repositories/recommendChat.repository";
+  buildMergedRecommendInput,
+  parseRequestBody,
+  requireSessionId,
+  saveRecommendAccumulatedInput,
+} from "../common/controllerHelpers";
 
 const RecommendCertificationSchema = z.object({
   userInput: z.string(),
 });
 
 export async function recommendCertificationController(req: Request, res: Response) {
-  const parsed = RecommendCertificationSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+  const bodyData = parseRequestBody(RecommendCertificationSchema, req, res);
+  if (!bodyData) return;
 
   try {
-    if (!req.sessionId) {
-      return res.status(400).json({ message: "sessionId가 필요합니다." });
-    }
-    const { userInput } = parsed.data;
-    const stored = await getRecommendState(
-      req.sessionId,
-      RecommendSection.CERTIFICATION
-    );
-    const mergedInput = [stored?.accumulatedInput, userInput]
-      .filter((value) => typeof value === "string" && value.trim().length > 0)
-      .join("\n");
-    const data = await recommendCertificationFromInput(mergedInput);
-    await saveRecommendState(
-      req.sessionId,
+    const sessionId = requireSessionId(req, res);
+    if (!sessionId) return;
+    const mergedInput = await buildMergedRecommendInput(
+      sessionId,
       RecommendSection.CERTIFICATION,
-      data.isComplete ? "" : mergedInput
+      bodyData.userInput
     );
-    return res.json(data);
+    const result = await recommendCertificationFromInput(mergedInput);
+    await saveRecommendAccumulatedInput(
+      sessionId,
+      RecommendSection.CERTIFICATION,
+      mergedInput,
+      result.isComplete
+    );
+    return res.json(result);
   } catch (e) {
     console.error("[recommendCertificationController]", e);
     return res.status(500).json({
@@ -54,33 +48,25 @@ export async function recommendSeniorLicenseSkillController(
   req: Request,
   res: Response
 ) {
-  const parsed = RecommendCertificationSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+  const bodyData = parseRequestBody(RecommendCertificationSchema, req, res);
+  if (!bodyData) return;
 
   try {
-    if (!req.sessionId) {
-      return res.status(400).json({ message: "sessionId가 필요합니다." });
-    }
-    const { userInput } = parsed.data;
-    const stored = await getRecommendState(
-      req.sessionId,
-      RecommendSection.CERTIFICATION
-    );
-    const mergedInput = [stored?.accumulatedInput, userInput]
-      .filter((value) => typeof value === "string" && value.trim().length > 0)
-      .join("\n");
-    const data = await recommendSeniorLicenseSkillFromInput(mergedInput);
-    await saveRecommendState(
-      req.sessionId,
+    const sessionId = requireSessionId(req, res);
+    if (!sessionId) return;
+    const mergedInput = await buildMergedRecommendInput(
+      sessionId,
       RecommendSection.CERTIFICATION,
-      data.isComplete ? "" : mergedInput
+      bodyData.userInput
     );
-    return res.json(data);
+    const result = await recommendSeniorLicenseSkillFromInput(mergedInput);
+    await saveRecommendAccumulatedInput(
+      sessionId,
+      RecommendSection.CERTIFICATION,
+      mergedInput,
+      result.isComplete
+    );
+    return res.json(result);
   } catch (e) {
     console.error("[POST /api/recommend/senior-license-skill]", e);
     return res.status(500).json({

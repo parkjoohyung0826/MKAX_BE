@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { recommendJobFromDescription } from "../services/job.service";
+import { parseRequestBody } from "../common/controllerHelpers";
 
 const RecommendSchema = z.object({
   description: z.string(),
@@ -11,27 +12,14 @@ export async function recommendJobController(
   res: Response,
   next: NextFunction
 ) {
-  console.log("Request body:", req.body);
-
-  const parsed = RecommendSchema.safeParse(req.body);
-  if (!parsed.success) {
-    console.warn("Validation failed");
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+  const data = parseRequestBody(RecommendSchema, req, res);
+  if (!data) return;
 
   try {
-    const { description } = parsed.data;
-    console.log("Description:", description);
-
-    const data = await recommendJobFromDescription(description);
-
-    console.log("Recommendation result:", data);
-    return res.json(data);
+    const result = await recommendJobFromDescription(data.description);
+    return res.json(result);
   } catch (err) {
     console.error("Error in recommendJobController");
-    next(err); 
+    next(err);
   }
 }
