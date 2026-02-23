@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { formatResumeData } from "../services/resumeFormat.service";
-import { randomInt } from "crypto";
-import { createAccessCode, findAccessCode } from "../repositories/accessCode.repository";
 import { getCoverLetterState } from "../repositories/archive.repository";
+import { parseRequestBody, requireSessionId } from "../common/controllerHelpers";
+import { createNewAccessCodeWithPayload } from "../common/accessCodeHelpers";
 
 const ResumeFormatSchema = z.object({
   resumeType: z.enum(["basic", "senior"]).optional().default("basic"),
@@ -35,41 +35,28 @@ export async function formatResumeController(
   res: Response,
   next: NextFunction
 ) {
-  const parsed = ResumeFormatSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+  const bodyData = parseRequestBody(ResumeFormatSchema, req, res);
+  if (!bodyData) return;
 
   try {
-    if (!req.sessionId) {
-      return res.status(400).json({ message: "sessionId가 필요합니다." });
-    }
-    const data = await formatResumeData(parsed.data);
+    const sessionId = requireSessionId(req, res);
+    if (!sessionId) return;
+    const data = await formatResumeData(bodyData);
     const coverLetter =
-      parsed.data.coverLetter ??
-      (await getCoverLetterState(req.sessionId));
+      bodyData.coverLetter ??
+      (await getCoverLetterState(sessionId));
     const payload = {
-      sessionId: req.sessionId,
-      resumeType: parsed.data.resumeType,
+      sessionId,
+      resumeType: bodyData.resumeType,
       resume: data,
       coverLetter,
       issuedAt: new Date().toISOString(),
     };
 
-    let code = String(randomInt(0, 1000000)).padStart(6, "0");
-    for (let i = 0; i < 5; i += 1) {
-      const exists = await findAccessCode(code);
-      if (!exists) break;
-      code = String(randomInt(0, 1000000)).padStart(6, "0");
-    }
-
-    await createAccessCode(code, payload);
+    const code = await createNewAccessCodeWithPayload(payload);
 
     return res.json({
-      resumeType: parsed.data.resumeType,
+      resumeType: bodyData.resumeType,
       resume: data,
       coverLetter,
       code,

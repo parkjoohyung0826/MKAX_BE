@@ -2,6 +2,10 @@ import { randomUUID } from "crypto";
 import { Request, Response, NextFunction } from "express";
 import { Storage } from "@google-cloud/storage";
 import { z } from "zod";
+import {
+  parseRequestBody,
+  withControllerErrorHandling,
+} from "../common/controllerHelpers";
 
 const storage = new Storage();
 
@@ -24,21 +28,12 @@ function sanitizeFileName(fileName: string): string {
   return fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-export async function createPhotoUploadUrlController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const parsed = PhotoUploadRequestSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+export const createPhotoUploadUrlController = withControllerErrorHandling(
+  async (req: Request, res: Response) => {
+    const bodyData = parseRequestBody(PhotoUploadRequestSchema, req, res);
+    if (!bodyData) return;
 
-  try {
-    const { fileName, contentType } = parsed.data;
+    const { fileName, contentType } = bodyData;
     const bucketName = resolveBucketName();
     const safeName = sanitizeFileName(fileName || "photo");
     const objectPath = `profiles/${randomUUID()}-${safeName}`;
@@ -58,7 +53,6 @@ export async function createPhotoUploadUrlController(
     });
 
     return res.status(200).json({ uploadUrl, viewUrl, objectPath });
-  } catch (err) {
-    return next(err);
-  }
-}
+  },
+  "createPhotoUploadUrlController"
+);

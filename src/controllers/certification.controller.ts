@@ -1,4 +1,3 @@
-import { Request, Response } from "express";
 import { z } from "zod";
 import {
   recommendCertificationFromInput,
@@ -6,71 +5,34 @@ import {
 } from "../services/certification.service";
 import { RecommendSection } from "@prisma/client";
 import {
-  buildMergedRecommendInput,
-  parseRequestBody,
-  requireSessionId,
-  saveRecommendAccumulatedInput,
+  createRecommendAccumulatedController,
 } from "../common/controllerHelpers";
 
 const RecommendCertificationSchema = z.object({
   userInput: z.string(),
 });
 
-export async function recommendCertificationController(req: Request, res: Response) {
-  const bodyData = parseRequestBody(RecommendCertificationSchema, req, res);
-  if (!bodyData) return;
+export const recommendCertificationController = createRecommendAccumulatedController({
+  schema: RecommendCertificationSchema,
+  section: RecommendSection.CERTIFICATION,
+  getInput: (data) => data.userInput,
+  service: recommendCertificationFromInput,
+  getIsComplete: (result) => result.isComplete,
+  fallbackError: {
+    logLabel: "[recommendCertificationController]",
+    message: "Failed to recommend certification",
+  },
+});
 
-  try {
-    const sessionId = requireSessionId(req, res);
-    if (!sessionId) return;
-    const mergedInput = await buildMergedRecommendInput(
-      sessionId,
-      RecommendSection.CERTIFICATION,
-      bodyData.userInput
-    );
-    const result = await recommendCertificationFromInput(mergedInput);
-    await saveRecommendAccumulatedInput(
-      sessionId,
-      RecommendSection.CERTIFICATION,
-      mergedInput,
-      result.isComplete
-    );
-    return res.json(result);
-  } catch (e) {
-    console.error("[recommendCertificationController]", e);
-    return res.status(500).json({
-      message: "Failed to recommend certification",
-    });
-  }
-}
-
-export async function recommendSeniorLicenseSkillController(
-  req: Request,
-  res: Response
-) {
-  const bodyData = parseRequestBody(RecommendCertificationSchema, req, res);
-  if (!bodyData) return;
-
-  try {
-    const sessionId = requireSessionId(req, res);
-    if (!sessionId) return;
-    const mergedInput = await buildMergedRecommendInput(
-      sessionId,
-      RecommendSection.CERTIFICATION,
-      bodyData.userInput
-    );
-    const result = await recommendSeniorLicenseSkillFromInput(mergedInput);
-    await saveRecommendAccumulatedInput(
-      sessionId,
-      RecommendSection.CERTIFICATION,
-      mergedInput,
-      result.isComplete
-    );
-    return res.json(result);
-  } catch (e) {
-    console.error("[POST /api/recommend/senior-license-skill]", e);
-    return res.status(500).json({
+export const recommendSeniorLicenseSkillController =
+  createRecommendAccumulatedController({
+    schema: RecommendCertificationSchema,
+    section: RecommendSection.CERTIFICATION,
+    getInput: (data) => data.userInput,
+    service: recommendSeniorLicenseSkillFromInput,
+    getIsComplete: (result) => result.isComplete,
+    fallbackError: {
+      logLabel: "[POST /api/recommend/senior-license-skill]",
       message: "Failed to recommend senior license skill",
-    });
-  }
-}
+    },
+  });

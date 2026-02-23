@@ -7,11 +7,18 @@ import {
 } from "../services/analysisReport.service";
 import { analyzeReportFromPdfFiles } from "../services/pdfAnalysis.service";
 import {
-  createAccessCode,
-  findAccessCode,
   updateAccessCode,
 } from "../repositories/accessCode.repository";
-import { randomInt } from "crypto";
+import {
+  parseRequestBody,
+  withControllerErrorHandling,
+} from "../common/controllerHelpers";
+import {
+  asObjectPayload,
+  createNewAccessCodeWithPayload,
+  findAccessCodeOrSend404,
+  updateAccessCodeWithMergedPayload,
+} from "../common/accessCodeHelpers";
 
 const ResumeSchema = z.object({
   name: z.string(),
@@ -70,58 +77,34 @@ const AnalysisReportSchema = z.object({
   coverLetter: CoverLetterSchema,
 });
 
-export async function analysisReportController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const parsed = AnalysisReportSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+export const analysisReportController = withControllerErrorHandling(
+  async (req: Request, res: Response) => {
+    const bodyData = parseRequestBody(AnalysisReportSchema, req, res);
+    if (!bodyData) return;
 
-  try {
-    const record = await findAccessCode(parsed.data.code);
-    if (!record) {
-      return res.status(404).json({ message: "인증번호가 유효하지 않습니다." });
-    }
+    const record = await findAccessCodeOrSend404(bodyData.code, res);
+    if (!record) return;
+
     const report = await analyzeResumeAndCoverLetter(
-      parsed.data.resume,
-      parsed.data.coverLetter
+      bodyData.resume,
+      bodyData.coverLetter
     );
     console.log("🧾 Analysis report result:", report);
-    const basePayload =
-      record.payload &&
-      typeof record.payload === "object" &&
-      !Array.isArray(record.payload)
-        ? record.payload
-        : {};
-    const payload: Prisma.InputJsonValue = {
-      ...(basePayload as Record<string, unknown>),
+    await updateAccessCodeWithMergedPayload(bodyData.code, record.payload, {
       analysisReport: report,
       analysisReportIssuedAt: new Date().toISOString(),
       analysisReportSourceType: "json",
-    };
-    await updateAccessCode(parsed.data.code, payload);
+    });
     return res.status(200).json({
       ...report,
       analysisReportSourceType: "json",
     });
-  } catch (err) {
-    console.error("🔥 Error in analysisReportController");
-    return next(err);
-  }
-}
+  },
+  "analysisReportController"
+);
 
-export async function analysisReportPdfController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  try {
+export const analysisReportPdfController = withControllerErrorHandling(
+  async (req: Request, res: Response) => {
     const files = (
       req as Request & {
         files?: { [fieldname: string]: Express.Multer.File[] };
@@ -139,18 +122,10 @@ export async function analysisReportPdfController(
     let code = typeof req.body?.code === "string" ? req.body.code : undefined;
 
     if (code) {
-      const record = await findAccessCode(code);
-      if (!record) {
-        return res.status(404).json({ message: "인증번호가 유효하지 않습니다." });
-      }
+      const record = await findAccessCodeOrSend404(code, res);
+      if (!record) return;
     } else {
-      code = String(randomInt(0, 1000000)).padStart(6, "0");
-      for (let i = 0; i < 5; i += 1) {
-        const exists = await findAccessCode(code);
-        if (!exists) break;
-        code = String(randomInt(0, 1000000)).padStart(6, "0");
-      }
-      await createAccessCode(code, {
+      code = await createNewAccessCodeWithPayload({
         issuedAt: new Date().toISOString(),
       });
     }
@@ -160,23 +135,16 @@ export async function analysisReportPdfController(
       coverLetterFile
     );
 
-    const record = await findAccessCode(code);
-    const basePayload =
-      record?.payload &&
-      typeof record.payload === "object" &&
-      !Array.isArray(record.payload)
-        ? record.payload
-        : {};
-    const payload: Prisma.InputJsonValue = {
-      ...(basePayload as Record<string, unknown>),
+    const record = await findAccessCodeOrSend404(code, res);
+    if (!record) return;
+    await updateAccessCodeWithMergedPayload(code, record.payload, {
       analysisReport: report,
       analysisReportIssuedAt: new Date().toISOString(),
       analysisReportSources: sources,
       analysisReportSourceUrls: sourceUrls,
       analysisReportExtractedTexts: extractedTexts,
       analysisReportSourceType: "pdf",
-    };
-    await updateAccessCode(code, payload);
+    });
 
     return res.status(200).json({
       code,
@@ -184,8 +152,6 @@ export async function analysisReportPdfController(
       analysisReportSourceType: "pdf",
       ...sourceUrls,
     });
-  } catch (err) {
-    console.error("🔥 Error in analysisReportPdfController");
-    return next(err);
-  }
-}
+  },
+  "analysisReportPdfController"
+);

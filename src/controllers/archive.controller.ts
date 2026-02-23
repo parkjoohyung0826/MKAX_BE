@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { deleteAccessCode, findAccessCode } from "../repositories/accessCode.repository";
+import { parseRequestBody } from "../common/controllerHelpers";
+import { findAccessCodeOrSend404 } from "../common/accessCodeHelpers";
 
 const FetchSchema = z.object({
   code: z.string().min(4),
@@ -11,19 +13,12 @@ export async function fetchArchiveByCodeController(
   res: Response,
   next: NextFunction
 ) {
-  const parsed = FetchSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+  const bodyData = parseRequestBody(FetchSchema, req, res);
+  if (!bodyData) return;
 
   try {
-    const record = await findAccessCode(parsed.data.code);
-    if (!record) {
-      return res.status(404).json({ message: "인증번호가 유효하지 않습니다." });
-    }
+    const record = await findAccessCodeOrSend404(bodyData.code, res);
+    if (!record) return;
     return res.status(200).json(record.payload);
   } catch (err) {
     console.error("🔥 Error in fetchArchiveByCodeController");
@@ -36,20 +31,13 @@ export async function deleteArchiveByCodeController(
   res: Response,
   next: NextFunction
 ) {
-  const parsed = FetchSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+  const bodyData = parseRequestBody(FetchSchema, req, res);
+  if (!bodyData) return;
 
   try {
-    const record = await findAccessCode(parsed.data.code);
-    if (!record) {
-      return res.status(404).json({ message: "인증번호가 유효하지 않습니다." });
-    }
-    await deleteAccessCode(parsed.data.code);
+    const record = await findAccessCodeOrSend404(bodyData.code, res);
+    if (!record) return;
+    await deleteAccessCode(bodyData.code);
     return res.status(200).json({ message: "삭제 완료" });
   } catch (err) {
     console.error("🔥 Error in deleteArchiveByCodeController");

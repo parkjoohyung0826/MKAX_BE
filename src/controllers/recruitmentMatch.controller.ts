@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { findAccessCode, updateAccessCode } from "../repositories/accessCode.repository";
+import { updateAccessCode } from "../repositories/accessCode.repository";
 import { Prisma } from "@prisma/client";
 import {
   getRecruitmentFilterOptions,
@@ -12,6 +12,20 @@ import {
   formatResumeFromExtractedText,
   ResumeFormatResult,
 } from "../services/resumeFormat.service";
+import {
+  parseRequestBody,
+  parseRequestQuery,
+  withControllerErrorHandling,
+} from "../common/controllerHelpers";
+import {
+  booleanLikeQuerySchema,
+  csvStringArrayQuerySchema,
+} from "../common/zodQuerySchemas";
+import {
+  asObjectPayload,
+  findAccessCodeOrSend404,
+  updateAccessCodeWithMergedPayload,
+} from "../common/accessCodeHelpers";
 
 const MatchSchema = z.object({
   code: z.string().min(4),
@@ -20,105 +34,35 @@ const MatchSchema = z.object({
 });
 const ListRecruitmentsQuerySchema = z.object({
   q: z.string().trim().min(1).max(100).optional(),
-  regions: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      const values = Array.isArray(value) ? value : value ? [value] : [];
-      return values.flatMap((item) =>
-        String(item)
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean)
-      );
-    }),
-  fields: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      const values = Array.isArray(value) ? value : value ? [value] : [];
-      return values.flatMap((item) =>
-        String(item)
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean)
-      );
-    }),
-  careerTypes: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      const values = Array.isArray(value) ? value : value ? [value] : [];
-      return values.flatMap((item) =>
-        String(item)
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean)
-      );
-    }),
-  educationLevels: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      const values = Array.isArray(value) ? value : value ? [value] : [];
-      return values.flatMap((item) =>
-        String(item)
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean)
-      );
-    }),
-  hireTypes: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      const values = Array.isArray(value) ? value : value ? [value] : [];
-      return values.flatMap((item) =>
-        String(item)
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean)
-      );
-    }),
-  includeClosed: z
-    .union([z.literal("true"), z.literal("false"), z.boolean()])
-    .optional()
-    .transform((value) => value === true || value === "true"),
+  regions: csvStringArrayQuerySchema,
+  fields: csvStringArrayQuerySchema,
+  careerTypes: csvStringArrayQuerySchema,
+  educationLevels: csvStringArrayQuerySchema,
+  hireTypes: csvStringArrayQuerySchema,
+  includeClosed: booleanLikeQuerySchema,
   offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 const RecruitmentFiltersQuerySchema = z.object({
-  includeClosed: z
-    .union([z.literal("true"), z.literal("false"), z.boolean()])
-    .optional()
-    .transform((value) => value === true || value === "true"),
+  includeClosed: booleanLikeQuerySchema,
 });
 
-export async function matchRecruitmentsController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const parsed = MatchSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid request body",
-      errors: parsed.error.flatten(),
-    });
-  }
+export const matchRecruitmentsController = withControllerErrorHandling(
+  async (req: Request, res: Response) => {
+    const bodyData = parseRequestBody(MatchSchema, req, res);
+    if (!bodyData) return;
 
-  try {
-    const record = await findAccessCode(parsed.data.code);
+    const record = await findAccessCodeOrSend404(bodyData.code, res);
     if (!record) {
-      return res.status(404).json({ message: "인증번호가 유효하지 않습니다." });
+      return;
     }
 
-    const storedPayload = record.payload as Record<string, unknown>;
-    let resume = storedPayload.resume as ResumeFormatResult | undefined;
-    const coverLetter = storedPayload.coverLetter as Record<string, string> | undefined;
+    let currentPayload = asObjectPayload(record.payload);
+    let resume = currentPayload.resume as ResumeFormatResult | undefined;
+    const coverLetter = currentPayload.coverLetter as Record<string, string> | undefined;
 
     if (!resume) {
-      const extractedTexts = storedPayload.analysisReportExtractedTexts as
+      const extractedTexts = currentPayload.analysisReportExtractedTexts as
         | { resumeText?: string; coverLetterText?: string }
         | undefined;
       const extractedResumeText =
@@ -128,20 +72,13 @@ export async function matchRecruitmentsController(
 
       if (extractedResumeText.trim()) {
         resume = await formatResumeFromExtractedText(extractedResumeText);
-
-        const basePayload =
-          record.payload &&
-          typeof record.payload === "object" &&
-          !Array.isArray(record.payload)
-            ? record.payload
-            : {};
-        const updatedPayload: Prisma.InputJsonValue = {
-          ...(basePayload as Record<string, unknown>),
-          resume,
-          resumeDerivedFromPdf: true,
-          resumeDerivedAt: new Date().toISOString(),
-        };
-        await updateAccessCode(parsed.data.code, updatedPayload);
+        currentPayload = asObjectPayload(
+          await updateAccessCodeWithMergedPayload(bodyData.code, currentPayload, {
+            resume,
+            resumeDerivedFromPdf: true,
+            resumeDerivedAt: new Date().toISOString(),
+          })
+        );
       }
     }
 
@@ -149,103 +86,65 @@ export async function matchRecruitmentsController(
       return res.status(400).json({ message: "이력서 데이터가 없습니다. (PDF 분석 결과에는 추출 텍스트 저장이 필요합니다.)" });
     }
 
-    const offset = parsed.data.offset ?? 0;
-    const limit = parsed.data.limit ?? 10;
+    const offset = bodyData.offset ?? 0;
+    const limit = bodyData.limit ?? 10;
     const result = await matchRecruitments(resume, coverLetter, offset, limit);
 
     if (offset === 0) {
-      const basePayload =
-        record.payload &&
-        typeof record.payload === "object" &&
-        !Array.isArray(record.payload)
-          ? record.payload
-          : {};
-      const updatedPayload: Prisma.InputJsonValue = {
-        ...(basePayload as Record<string, unknown>),
+      await updateAccessCodeWithMergedPayload(bodyData.code, currentPayload, {
         recruitmentMatch: result,
         recruitmentMatchIssuedAt: new Date().toISOString(),
-      };
-      await updateAccessCode(parsed.data.code, updatedPayload);
+      });
     }
 
     return res.status(200).json(result);
-  } catch (err) {
-    console.error("🔥 Error in matchRecruitmentsController");
-    return next(err);
-  }
-}
+  },
+  "matchRecruitmentsController"
+);
 
-export async function listRecruitmentsController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const parsed = ListRecruitmentsQuerySchema.safeParse(req.query ?? {});
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid query",
-      errors: parsed.error.flatten(),
-    });
-  }
+export const listRecruitmentsController = withControllerErrorHandling(
+  async (req: Request, res: Response) => {
+    const queryData = parseRequestQuery(ListRecruitmentsQuerySchema, req, res);
+    if (!queryData) return;
 
-  try {
-    const offset = parsed.data.offset ?? 0;
-    const limit = parsed.data.limit ?? 10;
+    const offset = queryData.offset ?? 0;
+    const limit = queryData.limit ?? 10;
     const result = await listRecruitments(
       {
-        q: parsed.data.q,
-        regions: parsed.data.regions,
-        fields: parsed.data.fields,
-        careerTypes: parsed.data.careerTypes,
-        educationLevels: parsed.data.educationLevels,
-        hireTypes: parsed.data.hireTypes,
-        includeClosed: parsed.data.includeClosed,
+        q: queryData.q,
+        regions: queryData.regions,
+        fields: queryData.fields,
+        careerTypes: queryData.careerTypes,
+        educationLevels: queryData.educationLevels,
+        hireTypes: queryData.hireTypes,
+        includeClosed: queryData.includeClosed,
       },
       offset,
       limit
     );
     return res.status(200).json(result);
-  } catch (err) {
-    console.error("🔥 Error in listRecruitmentsController");
-    return next(err);
-  }
-}
+  },
+  "listRecruitmentsController"
+);
 
-export async function syncRecruitmentsController(
-  _req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  try {
+export const syncRecruitmentsController = withControllerErrorHandling(
+  async (_req: Request, res: Response) => {
     const result = await syncRecruitmentPostings(true);
     return res.status(200).json({
       message: "Recruitment postings synchronized.",
       result,
     });
-  } catch (err) {
-    console.error("🔥 Error in syncRecruitmentsController");
-    return next(err);
-  }
-}
+  },
+  "syncRecruitmentsController"
+);
 
-export async function recruitmentFilterOptionsController(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const parsed = RecruitmentFiltersQuerySchema.safeParse(req.query ?? {});
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Invalid query",
-      errors: parsed.error.flatten(),
-    });
-  }
+export const recruitmentFilterOptionsController = withControllerErrorHandling(
+  async (req: Request, res: Response) => {
+    const queryData = parseRequestQuery(RecruitmentFiltersQuerySchema, req, res);
+    if (!queryData) return;
 
-  try {
-    const result = await getRecruitmentFilterOptions(parsed.data.includeClosed);
+    const result = await getRecruitmentFilterOptions(queryData.includeClosed);
     return res.status(200).json(result);
-  } catch (err) {
-    console.error("🔥 Error in recruitmentFilterOptionsController");
-    return next(err);
-  }
-}
+  },
+  "recruitmentFilterOptionsController"
+);
