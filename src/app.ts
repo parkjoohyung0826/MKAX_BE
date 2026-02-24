@@ -22,6 +22,7 @@ import uploadRoutes from "./routes/upload.routes";
 import cors from "cors";
 import { errorHandler } from "./middlewares/errorHandler";
 import { anonymousSession } from "./middlewares/anonymousSession";
+import { requestMetrics } from "./middlewares/requestMetrics";
 
 const app = express();
 
@@ -31,6 +32,7 @@ const corsOrigins = process.env.CORS_ORIGIN
 app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json({ limit: "3mb" }));
 app.use(anonymousSession);
+app.use(requestMetrics);
 
 ([
   ["/items", itemRoutes],
