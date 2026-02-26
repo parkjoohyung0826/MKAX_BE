@@ -360,7 +360,8 @@ function buildProfileSummary(resume: ResumeFormatResult, coverLetter?: CoverLett
 
 async function scoreRecruitmentsBatch(
   jobs: RecruitmentItem[],
-  profileSummary: string
+  profileSummary: string,
+  timeoutMs?: number
 ): Promise<Record<number, { matchScore: number; matchReason: string }>> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   const systemPrompt = `
@@ -399,7 +400,18 @@ async function scoreRecruitmentsBatch(
   )}`;
 
   try {
-    const result = await model.generateContent([systemPrompt, userPrompt]);
+    const generatePromise = model.generateContent([systemPrompt, userPrompt]);
+    const result =
+      timeoutMs && timeoutMs > 0
+        ? await Promise.race([
+            generatePromise,
+            new Promise<never>((_, reject) => {
+              setTimeout(() => {
+                reject(new Error(`Recruitment match AI batch timeout (${timeoutMs}ms)`));
+              }, timeoutMs);
+            }),
+          ])
+        : await generatePromise;
     const text = result.response.text();
     const cleaned = text
       .trim()
@@ -423,7 +435,11 @@ async function scoreRecruitmentsBatch(
       };
     }
     return resultMap;
-  } catch {
+  } catch (error) {
+    console.warn("[recruitmentMatch] AI batch scoring skipped", {
+      reason: error instanceof Error ? error.message : String(error),
+      batchSize: jobs.length,
+    });
     return {};
   }
 }
@@ -886,7 +902,15 @@ export async function matchRecruitments(
   const chunkSizeFromEnv = Number(process.env.RECRUITMENT_MATCH_BATCH_LIMIT ?? "20");
   const chunkSize =
     Number.isFinite(chunkSizeFromEnv) && chunkSizeFromEnv > 0 ? chunkSizeFromEnv : 20;
-  const aiTargetLimit = parsePositiveInt(process.env.RECRUITMENT_MATCH_AI_TARGET_LIMIT, 200);
+  const aiTargetLimit = parsePositiveInt(process.env.RECRUITMENT_MATCH_AI_TARGET_LIMIT, 60);
+  const aiBatchTimeoutMs = parsePositiveInt(
+    process.env.RECRUITMENT_MATCH_AI_BATCH_TIMEOUT_MS,
+    7000
+  );
+  const aiTotalBudgetMs = parsePositiveInt(
+    process.env.RECRUITMENT_MATCH_AI_TOTAL_BUDGET_MS,
+    15000
+  );
   const scoreTargetCount = Math.min(
     prelim.length,
     Math.max(safeOffset + safeLimit * 5, Math.max(aiTargetLimit, 50))
@@ -894,9 +918,23 @@ export async function matchRecruitments(
   const scoreTargets = prelim.slice(0, scoreTargetCount).map((entry) => entry.item);
   const scoreMap: Record<number, { matchScore: number; matchReason: string }> = {};
 
+  const aiStartedAt = Date.now();
   for (let i = 0; i < scoreTargets.length; i += chunkSize) {
+    if (Date.now() - aiStartedAt >= aiTotalBudgetMs) {
+      console.warn("[recruitmentMatch] AI scoring budget exceeded", {
+        elapsedMs: Date.now() - aiStartedAt,
+        budgetMs: aiTotalBudgetMs,
+        processedCount: i,
+        totalTargets: scoreTargets.length,
+      });
+      break;
+    }
     const chunk = scoreTargets.slice(i, i + chunkSize);
-    const chunkScoreMap = await scoreRecruitmentsBatch(chunk, profileSummary);
+    const chunkScoreMap = await scoreRecruitmentsBatch(
+      chunk,
+      profileSummary,
+      aiBatchTimeoutMs
+    );
     Object.assign(scoreMap, chunkScoreMap);
   }
 
