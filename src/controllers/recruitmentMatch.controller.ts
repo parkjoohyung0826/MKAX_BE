@@ -89,6 +89,14 @@ export const matchRecruitmentsController = withControllerErrorHandling(
     const offset = bodyData.offset ?? 0;
     const limit = bodyData.limit ?? 10;
     const result = await matchRecruitments(resume, coverLetter, offset, limit);
+    console.log("[matchRecruitmentsController] matched recruitments", {
+      code: bodyData.code,
+      offset,
+      limit,
+      total: result.total,
+      itemCount: result.items.length,
+      data: result,
+    });
 
     if (offset === 0) {
       await updateAccessCodeWithMergedPayload(bodyData.code, currentPayload, {
