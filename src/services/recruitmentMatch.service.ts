@@ -98,6 +98,7 @@ export type RecruitmentSyncResult = {
   inserted: number;
   updated: number;
   deactivated: number;
+  deletedExpired: number;
   pageCount: number;
   syncedAt: string;
 };
@@ -181,6 +182,24 @@ function isOngoingRecruitment(item: RecruitmentItem) {
   const ongoing = normalize(item.ongoingYn).toUpperCase();
   if (!ongoing) return true;
   return ongoing !== "N";
+}
+
+function toYmdKey(value: unknown): string | null {
+  const digits = normalize(value).replace(/\D/g, "");
+  return digits.length === 8 ? digits : null;
+}
+
+function getTodayYmdKey(referenceDate = new Date()) {
+  const year = referenceDate.getFullYear();
+  const month = String(referenceDate.getMonth() + 1).padStart(2, "0");
+  const day = String(referenceDate.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function isPastEndDate(pbancEndYmd: string | null, todayYmdKey: string) {
+  const endYmdKey = toYmdKey(pbancEndYmd);
+  if (!endYmdKey) return false;
+  return endYmdKey < todayYmdKey;
 }
 
 function buildSearchText(item: RecruitmentItem) {
@@ -661,6 +680,34 @@ async function enrichRecruitmentsWithDetail(
   return results;
 }
 
+async function deleteExpiredRecruitments(referenceDate = new Date()): Promise<number> {
+  const todayYmdKey = getTodayYmdKey(referenceDate);
+  const candidates = await prisma.recruitmentPosting.findMany({
+    where: {
+      pbancEndYmd: { not: null },
+    },
+    select: {
+      id: true,
+      pbancEndYmd: true,
+    },
+  });
+
+  const expiredIds = candidates
+    .filter((candidate) => isPastEndDate(candidate.pbancEndYmd, todayYmdKey))
+    .map((candidate) => candidate.id);
+
+  if (expiredIds.length === 0) {
+    return 0;
+  }
+
+  const deleted = await prisma.recruitmentPosting.deleteMany({
+    where: {
+      id: { in: expiredIds },
+    },
+  });
+  return deleted.count;
+}
+
 async function performRecruitmentSync(): Promise<RecruitmentSyncResult> {
   const syncStartedAt = new Date();
   const pageSize = Math.min(
@@ -705,6 +752,7 @@ async function performRecruitmentSync(): Promise<RecruitmentSyncResult> {
   }
 
   const syncCompleted = totalCount > 0 && totalFetched >= totalCount;
+  const deletedExpiredCount = await deleteExpiredRecruitments(syncStartedAt);
   let deactivatedCount = 0;
   if (syncCompleted) {
     const deactivated = await prisma.recruitmentPosting.updateMany({
@@ -719,6 +767,7 @@ async function performRecruitmentSync(): Promise<RecruitmentSyncResult> {
     inserted,
     updated,
     deactivated: deactivatedCount,
+    deletedExpired: deletedExpiredCount,
     pageCount,
     syncedAt: syncStartedAt.toISOString(),
   };
