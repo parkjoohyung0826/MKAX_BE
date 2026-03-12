@@ -41,6 +41,8 @@ model ChatSession {
   updatedAt DateTime    @updatedAt
   states    ChatState[]
   recommendStates RecommendState[]
+  customCoverLetterSets CustomCoverLetterSet[]
+  customCoverLetterChatStates CustomCoverLetterChatState[]
 }
 
 model ChatState {
@@ -68,6 +70,52 @@ model RecommendState {
   session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, section])
+}
+
+model CustomCoverLetterSet {
+  id         Int      @id @default(autoincrement())
+  sessionId  String
+  companyName String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  session   ChatSession                 @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questions CustomCoverLetterQuestion[]
+
+  @@index([sessionId])
+}
+
+model CustomCoverLetterQuestion {
+  id                Int      @id @default(autoincrement())
+  setId             Int
+  order             Int
+  title             String
+  hasCharacterLimit Boolean  @default(false)
+  characterLimit    Int?
+  systemPrompt      String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  set        CustomCoverLetterSet         @relation(fields: [setId], references: [id], onDelete: Cascade)
+  chatStates CustomCoverLetterChatState[]
+
+  @@index([setId])
+}
+
+model CustomCoverLetterChatState {
+  id         Int      @id @default(autoincrement())
+  sessionId  String
+  questionId Int
+  summary    String   @default("")
+  finalDraft String   @default("")
+  isComplete Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+
+  session  ChatSession               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question CustomCoverLetterQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, questionId])
+  @@index([questionId])
 }
 
 model AccessCode {
