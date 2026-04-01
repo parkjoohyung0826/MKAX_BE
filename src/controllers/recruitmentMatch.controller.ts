@@ -6,6 +6,7 @@ import {
   getRecruitmentFilterOptions,
   listRecruitments,
   matchRecruitments,
+  purgeExpiredRecruitments,
   syncRecruitmentPostings,
 } from "../services/recruitmentMatch.service";
 import {
@@ -144,6 +145,17 @@ export const syncRecruitmentsController = withControllerErrorHandling(
     });
   },
   "syncRecruitmentsController"
+);
+
+export const purgeExpiredRecruitmentsController = withControllerErrorHandling(
+  async (_req: Request, res: Response) => {
+    const deletedCount = await purgeExpiredRecruitments();
+    return res.status(200).json({
+      message: "Expired recruitment postings purged.",
+      deletedCount,
+    });
+  },
+  "purgeExpiredRecruitmentsController"
 );
 
 export const recruitmentFilterOptionsController = withControllerErrorHandling(

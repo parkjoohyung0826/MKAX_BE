@@ -1021,6 +1021,10 @@ export async function syncRecruitmentPostings(force = true) {
   return ensureRecruitmentsSynced(force);
 }
 
+export async function purgeExpiredRecruitments(): Promise<number> {
+  return deleteExpiredRecruitments();
+}
+
 export async function listRecruitments(
   filters: RecruitmentListFilters = {},
   offset = 0,
