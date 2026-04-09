@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence } from "../common/textProcessing";
 
 export type RecommendActivityResult = {
   fullDescription: string;
@@ -7,15 +8,6 @@ export type RecommendActivityResult = {
 };
 
 type ActivityMode = "basic" | "senior";
-
-function stripCodeFence(text: string) {
-  return text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
-}
 
 
 export async function recommendActivityFromUserInput(

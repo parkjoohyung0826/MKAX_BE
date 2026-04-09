@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence, normalize } from "../common/textProcessing";
 
 export type RecommendProfileResult = {
   name: string;
@@ -16,10 +17,6 @@ export type RecommendProfileResult = {
 type ProfileFields = Omit<RecommendProfileResult, "missingInfo" | "isComplete">;
 const PHOTO_INPUT_GUIDE =
   "프로필 정보 입력이 완료됐어요. 사진은 챗봇이 아닌 직접 입력 모드에서 추가해주세요. 사진 입력 방법을 물어보시면 직접 입력 모드에서 등록하시면 된다고 안내드릴게요.";
-
-function normalize(value: unknown): string {
-  return String(value ?? "").trim();
-}
 
 function isValidEnglishName(value: string): boolean {
   return /^[A-Za-z][A-Za-z\s.'-]*$/.test(value);
@@ -92,12 +89,7 @@ export async function recommendProfileFromDescription(
   const result = await model.generateContent([systemPrompt, userPrompt]);
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   let parsed: any;
   try {

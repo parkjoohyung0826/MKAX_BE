@@ -1,5 +1,6 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
 import { ResumeFormatResult } from "./resumeFormat.service";
+import { stripCodeFence, normalize } from "../common/textProcessing";
 
 export type CoverLetterData = {
   growthProcess: string;
@@ -88,10 +89,6 @@ const SCORE_BREAKDOWN_ITEMS = [
   { item: "구조 및 가독성", maxScore: 15 },
   { item: "문서 완성도", maxScore: 20 },
 ] as const;
-
-function normalize(value: unknown): string {
-  return String(value ?? "").trim();
-}
 
 function toNumber(value: unknown, fallback = 0): number {
   const num = Number(value);
@@ -341,12 +338,7 @@ async function runAnalysisReport(
   const result = await model.generateContent([systemPrompt, userPrompt]);
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   let parsed: any;
   try {

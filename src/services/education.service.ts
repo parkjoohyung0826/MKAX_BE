@@ -1,5 +1,6 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
 import { findPeriodOrderIssues } from "../common/periodValidation";
+import { stripCodeFence } from "../common/textProcessing";
 
 export type RecommendEducationResult = {
   fullDescription: string;
@@ -85,12 +86,7 @@ export async function recommendEducationFromDescription(
   const result = await model.generateContent([systemPrompt, userPrompt]);
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   console.log("response:", cleaned);
 

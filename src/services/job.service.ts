@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence } from "../common/textProcessing";
 
 export type RecommendJobResult = {
   recommendedJob: string;
@@ -51,12 +52,7 @@ isComplete: 필수 항목이 모두 충족되어 추가 입력이 필요 없으�
 
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   console.log("response:", cleaned);
 

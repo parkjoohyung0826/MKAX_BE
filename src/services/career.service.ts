@@ -1,18 +1,12 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
 import { findPeriodOrderIssues } from "../common/periodValidation";
+import { stripCodeFence, normalizeFullDescription } from "../common/textProcessing";
 
 export type CareerResult = {
   fullDescription: string;
   missingInfo: string;
   isComplete: boolean;
 };
-
-function normalizeFullDescription(value: unknown): string {
-  return String(value ?? "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{2,}/g, "\n")
-    .trim();
-}
 
 export async function recommendCareerFromInput(
   userInput: string
@@ -84,12 +78,7 @@ export async function recommendCareerFromInput(
   const result = await model.generateContent([systemPrompt, userPrompt]);
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   console.log("response:", cleaned);
 

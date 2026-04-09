@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence, normalize } from "../common/textProcessing";
 import {
   getCustomChatState,
   getCustomQuestionById,
@@ -18,10 +19,6 @@ export type CustomCoverLetterChatResult = {
   finalDraft: string;
   isComplete: boolean;
 };
-
-function normalize(value: unknown): string {
-  return String(value ?? "").trim();
-}
 
 function buildFallbackQuestion(title: string) {
   return `문항 "${title}"에 맞춰 핵심 경험 1가지를 먼저 구체적으로 알려주세요.`;
@@ -59,12 +56,7 @@ export async function chatCustomCoverLetterQuestion(
     const result = await model.generateContent([question.systemPrompt, userPrompt]);
     const text = result.response.text();
 
-    const cleaned = text
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
+    const cleaned = stripCodeFence(text);
 
     const parsed = JSON.parse(cleaned) as {
       nextQuestion?: unknown;

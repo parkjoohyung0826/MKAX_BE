@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence } from "../common/textProcessing";
 
 export type RecommendCertificationResult = {
   fullDescription: string;
@@ -122,12 +123,7 @@ async function recommendCertificationByMode(
   ]);
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   try {
     const parsed = JSON.parse(cleaned);

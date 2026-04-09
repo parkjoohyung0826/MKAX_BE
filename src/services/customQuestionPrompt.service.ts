@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence } from "../common/textProcessing";
 
 export type DynamicQuestionPromptInput = {
   questionTitle: string;
@@ -56,12 +57,7 @@ systemPrompt 작성 규칙:
   try {
     const result = await model.generateContent([systemPrompt, userPrompt]);
     const text = result?.response?.text?.() ?? "";
-    const cleaned = text
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
+    const cleaned = stripCodeFence(text);
 
     const parsed = JSON.parse(cleaned) as {
       prompts?: Array<{ index?: number; systemPrompt?: string }>;

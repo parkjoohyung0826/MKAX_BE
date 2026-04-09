@@ -1,5 +1,6 @@
 import { CoverLetterSection } from "@prisma/client";
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence, normalize } from "../common/textProcessing";
 import { getChatState, saveChatState } from "../repositories/coverLetterChat.repository";
 
 export type CoverLetterChatFlowInput = {
@@ -22,10 +23,6 @@ type ExecuteCoverLetterChatFlowParams = {
   fallbackQuestion: string;
 };
 
-function normalize(value: unknown): string {
-  return String(value ?? "").trim();
-}
-
 export async function executeCoverLetterChatFlow(
   params: ExecuteCoverLetterChatFlowParams
 ): Promise<CoverLetterChatFlowResult> {
@@ -42,12 +39,7 @@ export async function executeCoverLetterChatFlow(
   const result = await model.generateContent([systemPrompt, userPrompt]);
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   let parsed: any;
   try {

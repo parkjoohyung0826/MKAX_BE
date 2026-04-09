@@ -2,6 +2,7 @@ import { genAI, GEMINI_MODEL } from "../common/gemini";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../infra/db/prisma";
 import { ResumeFormatResult } from "./resumeFormat.service";
+import { stripCodeFence, normalize } from "../common/textProcessing";
 
 type CoverLetterInput = {
   growthProcess?: string;
@@ -134,9 +135,6 @@ const REGION_KEYWORDS = [
 
 let syncInFlight: Promise<RecruitmentSyncResult> | null = null;
 
-function normalize(value: unknown): string {
-  return String(value ?? "").trim();
-}
 
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
@@ -432,12 +430,7 @@ async function scoreRecruitmentsBatch(
           ])
         : await generatePromise;
     const text = result.response.text();
-    const cleaned = text
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
+    const cleaned = stripCodeFence(text);
     const parsed = JSON.parse(cleaned);
     const items = Array.isArray(parsed?.items) ? parsed.items : [];
     const resultMap: Record<number, { matchScore: number; matchReason: string }> =

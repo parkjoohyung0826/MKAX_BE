@@ -1,4 +1,5 @@
 import { genAI, GEMINI_MODEL } from "../common/gemini";
+import { stripCodeFence, normalize } from "../common/textProcessing";
 
 export type ResumeFormatInput = {
   resumeType?: "basic" | "senior";
@@ -60,10 +61,6 @@ export type ResumeFormatResult = {
   coreCompetencies: ResumeCoreCompetencyItem[];
   certifications: ResumeCertificationItem[];
 };
-
-function normalize(value: unknown): string {
-  return String(value ?? "").trim();
-}
 
 export async function formatResumeData(
   input: ResumeFormatInput
@@ -140,12 +137,7 @@ export async function formatResumeData(
   const result = await model.generateContent([systemPrompt, userPrompt]);
   const text = result.response.text();
 
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const cleaned = stripCodeFence(text);
 
   let parsed: any;
   try {
@@ -297,12 +289,7 @@ export async function formatResumeFromExtractedText(
       `resumeText: ${JSON.stringify(text)}`,
     ]);
     const raw = result.response.text();
-    const cleaned = raw
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
+    const cleaned = stripCodeFence(raw);
     const parsed = JSON.parse(cleaned);
 
     return {
