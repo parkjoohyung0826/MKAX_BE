@@ -1,32 +1,16 @@
 import { CoverLetterSection } from "@prisma/client";
-import {
-  executeCoverLetterChatFlow,
-  type CoverLetterChatFlowInput,
-  type CoverLetterChatFlowResult,
+import { createChatFlowService } from "./chatFlowFactory";
+import type {
+  CoverLetterChatFlowInput,
+  CoverLetterChatFlowResult,
 } from "./coverLetterChatFlow.service";
 
 export type PersonalityChatInput = CoverLetterChatFlowInput;
 export type PersonalityChatResult = CoverLetterChatFlowResult;
 
-type PersonalityMode = "basic" | "senior";
-
-export async function chatPersonality(
-  input: PersonalityChatInput
-): Promise<PersonalityChatResult> {
-  return chatPersonalityByMode(input, "basic");
-}
-
-export async function chatSeniorOrganizationCommunication(
-  input: PersonalityChatInput
-): Promise<PersonalityChatResult> {
-  return chatPersonalityByMode(input, "senior");
-}
-
-async function chatPersonalityByMode(
-  input: PersonalityChatInput,
-  mode: PersonalityMode
-): Promise<PersonalityChatResult> {
-  const basicSystemPrompt = `
+const { basicFn, seniorFn } = createChatFlowService({
+  section: CoverLetterSection.PERSONALITY,
+  basicSystemPrompt: `
 너는 자기소개서 문항 중 "성격의 장단점"을 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -54,9 +38,8 @@ async function chatPersonalityByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
-
-  const seniorSystemPrompt = `
+`,
+  seniorSystemPrompt: `
 너는 시니어 자기소개서 문항 중 "조직 융화력 및 소통 태도"를 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -86,18 +69,11 @@ async function chatPersonalityByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
+`,
+  basicFallbackQuestion: "강점 하나와 그걸 보여주는 구체적 사례를 알려주세요.",
+  seniorFallbackQuestion:
+    "젊은 동료나 상사와 함께 일할 때 어떤 태도로 소통하시는지 알려주세요.",
+});
 
-  const systemPrompt = mode === "senior" ? seniorSystemPrompt : basicSystemPrompt;
-  const fallbackQuestion =
-    mode === "senior"
-      ? "젊은 동료나 상사와 함께 일할 때 어떤 태도로 소통하시는지 알려주세요."
-      : "강점 하나와 그걸 보여주는 구체적 사례를 알려주세요.";
-
-  return executeCoverLetterChatFlow({
-    input,
-    section: CoverLetterSection.PERSONALITY,
-    systemPrompt,
-    fallbackQuestion,
-  });
-}
+export const chatPersonality = basicFn;
+export const chatSeniorOrganizationCommunication = seniorFn;

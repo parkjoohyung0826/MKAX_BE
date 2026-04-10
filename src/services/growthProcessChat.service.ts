@@ -1,32 +1,16 @@
 import { CoverLetterSection } from "@prisma/client";
-import {
-  executeCoverLetterChatFlow,
-  type CoverLetterChatFlowInput,
-  type CoverLetterChatFlowResult,
+import { createChatFlowService } from "./chatFlowFactory";
+import type {
+  CoverLetterChatFlowInput,
+  CoverLetterChatFlowResult,
 } from "./coverLetterChatFlow.service";
 
 export type GrowthProcessChatInput = CoverLetterChatFlowInput;
 export type GrowthProcessChatResult = CoverLetterChatFlowResult;
 
-type GrowthProcessMode = "basic" | "senior";
-
-export async function chatGrowthProcess(
-  input: GrowthProcessChatInput
-): Promise<GrowthProcessChatResult> {
-  return chatGrowthProcessByMode(input, "basic");
-}
-
-export async function chatSeniorCareerSummaryLifeView(
-  input: GrowthProcessChatInput
-): Promise<GrowthProcessChatResult> {
-  return chatGrowthProcessByMode(input, "senior");
-}
-
-async function chatGrowthProcessByMode(
-  input: GrowthProcessChatInput,
-  mode: GrowthProcessMode
-): Promise<GrowthProcessChatResult> {
-  const basicSystemPrompt = `
+const { basicFn, seniorFn } = createChatFlowService({
+  section: CoverLetterSection.GROWTH_PROCESS,
+  basicSystemPrompt: `
 너는 자기소개서 문항 중 "성장과정"을 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -54,9 +38,8 @@ async function chatGrowthProcessByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
-
-  const seniorSystemPrompt = `
+`,
+  seniorSystemPrompt: `
 너는 시니어 자기소개서 문항 중 "경력 요약 및 인생관"을 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -85,18 +68,12 @@ async function chatGrowthProcessByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
+`,
+  basicFallbackQuestion:
+    "성장과정에서 중요한 경험 한 가지를 구체적으로 알려주세요.",
+  seniorFallbackQuestion:
+    "가장 오래 근무하신 직무와 그 일을 하며 가장 중요하게 지켜온 원칙을 알려주세요.",
+});
 
-  const systemPrompt = mode === "senior" ? seniorSystemPrompt : basicSystemPrompt;
-  const fallbackQuestion =
-    mode === "senior"
-      ? "가장 오래 근무하신 직무와 그 일을 하며 가장 중요하게 지켜온 원칙을 알려주세요."
-      : "성장과정에서 중요한 경험 한 가지를 구체적으로 알려주세요.";
-
-  return executeCoverLetterChatFlow({
-    input,
-    section: CoverLetterSection.GROWTH_PROCESS,
-    systemPrompt,
-    fallbackQuestion,
-  });
-}
+export const chatGrowthProcess = basicFn;
+export const chatSeniorCareerSummaryLifeView = seniorFn;

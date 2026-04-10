@@ -1,32 +1,16 @@
 import { CoverLetterSection } from "@prisma/client";
-import {
-  executeCoverLetterChatFlow,
-  type CoverLetterChatFlowInput,
-  type CoverLetterChatFlowResult,
+import { createChatFlowService } from "./chatFlowFactory";
+import type {
+  CoverLetterChatFlowInput,
+  CoverLetterChatFlowResult,
 } from "./coverLetterChatFlow.service";
 
 export type CareerStrengthChatInput = CoverLetterChatFlowInput;
 export type CareerStrengthChatResult = CoverLetterChatFlowResult;
 
-type CareerStrengthMode = "basic" | "senior";
-
-export async function chatCareerStrength(
-  input: CareerStrengthChatInput
-): Promise<CareerStrengthChatResult> {
-  return chatCareerStrengthByMode(input, "basic");
-}
-
-export async function chatSeniorCoreSkills(
-  input: CareerStrengthChatInput
-): Promise<CareerStrengthChatResult> {
-  return chatCareerStrengthByMode(input, "senior");
-}
-
-async function chatCareerStrengthByMode(
-  input: CareerStrengthChatInput,
-  mode: CareerStrengthMode
-): Promise<CareerStrengthChatResult> {
-  const basicSystemPrompt = `
+const { basicFn, seniorFn } = createChatFlowService({
+  section: CoverLetterSection.CAREER_STRENGTH,
+  basicSystemPrompt: `
 너는 자기소개서 문항 중 "주요 경력 및 업무 경험"을 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -54,9 +38,8 @@ async function chatCareerStrengthByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
-
-  const seniorSystemPrompt = `
+`,
+  seniorSystemPrompt: `
 너는 시니어 자기소개서 문항 중 "핵심 역량 및 보유 기술"을 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -86,18 +69,12 @@ async function chatCareerStrengthByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
+`,
+  basicFallbackQuestion:
+    "주요 경력 또는 프로젝트 한 가지를 구체적으로 알려주세요.",
+  seniorFallbackQuestion:
+    "지원 업무에 바로 활용할 수 있는 기술이나 자격증, 또는 이전 일에서 가져올 수 있는 노하우를 알려주세요.",
+});
 
-  const systemPrompt = mode === "senior" ? seniorSystemPrompt : basicSystemPrompt;
-  const fallbackQuestion =
-    mode === "senior"
-      ? "지원 업무에 바로 활용할 수 있는 기술이나 자격증, 또는 이전 일에서 가져올 수 있는 노하우를 알려주세요."
-      : "주요 경력 또는 프로젝트 한 가지를 구체적으로 알려주세요.";
-
-  return executeCoverLetterChatFlow({
-    input,
-    section: CoverLetterSection.CAREER_STRENGTH,
-    systemPrompt,
-    fallbackQuestion,
-  });
-}
+export const chatCareerStrength = basicFn;
+export const chatSeniorCoreSkills = seniorFn;

@@ -1,32 +1,16 @@
 import { CoverLetterSection } from "@prisma/client";
-import {
-  executeCoverLetterChatFlow,
-  type CoverLetterChatFlowInput,
-  type CoverLetterChatFlowResult,
+import { createChatFlowService } from "./chatFlowFactory";
+import type {
+  CoverLetterChatFlowInput,
+  CoverLetterChatFlowResult,
 } from "./coverLetterChatFlow.service";
 
 export type MotivationAspirationChatInput = CoverLetterChatFlowInput;
 export type MotivationAspirationChatResult = CoverLetterChatFlowResult;
 
-type MotivationAspirationMode = "basic" | "senior";
-
-export async function chatMotivationAspiration(
-  input: MotivationAspirationChatInput
-): Promise<MotivationAspirationChatResult> {
-  return chatMotivationAspirationByMode(input, "basic");
-}
-
-export async function chatSeniorMotivationWorkReadiness(
-  input: MotivationAspirationChatInput
-): Promise<MotivationAspirationChatResult> {
-  return chatMotivationAspirationByMode(input, "senior");
-}
-
-async function chatMotivationAspirationByMode(
-  input: MotivationAspirationChatInput,
-  mode: MotivationAspirationMode
-): Promise<MotivationAspirationChatResult> {
-  const basicSystemPrompt = `
+const { basicFn, seniorFn } = createChatFlowService({
+  section: CoverLetterSection.MOTIVATION_ASPIRATION,
+  basicSystemPrompt: `
 너는 자기소개서 문항 중 "지원 동기 및 포부"를 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -54,9 +38,8 @@ async function chatMotivationAspirationByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
-
-  const seniorSystemPrompt = `
+`,
+  seniorSystemPrompt: `
 너는 시니어 자기소개서 문항 중 "지원 동기 및 근무 각오 (건강/성실)"를 완성하기 위한 대화형 코치다.
 아래 입력을 바탕으로 요약을 업데이트하고 다음 질문을 하나만 제시해라.
 출력은 반드시 JSON 형식만 허용하며 다른 텍스트는 금지한다.
@@ -85,18 +68,12 @@ async function chatMotivationAspirationByMode(
   "finalDraft": string,
   "isComplete": boolean
 }
-`;
+`,
+  basicFallbackQuestion:
+    "지원 동기를 형성한 개인 경험을 구체적으로 알려주세요.",
+  seniorFallbackQuestion:
+    "이 업무에 지원하신 가장 현실적인 이유와, 오래 성실히 근무할 수 있다고 생각하는 근거를 알려주세요.",
+});
 
-  const systemPrompt = mode === "senior" ? seniorSystemPrompt : basicSystemPrompt;
-  const fallbackQuestion =
-    mode === "senior"
-      ? "이 업무에 지원하신 가장 현실적인 이유와, 오래 성실히 근무할 수 있다고 생각하는 근거를 알려주세요."
-      : "지원 동기를 형성한 개인 경험을 구체적으로 알려주세요.";
-
-  return executeCoverLetterChatFlow({
-    input,
-    section: CoverLetterSection.MOTIVATION_ASPIRATION,
-    systemPrompt,
-    fallbackQuestion,
-  });
-}
+export const chatMotivationAspiration = basicFn;
+export const chatSeniorMotivationWorkReadiness = seniorFn;
