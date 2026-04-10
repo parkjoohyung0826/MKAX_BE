@@ -176,6 +176,12 @@ function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
 }
 
+function extractRawItem(raw: Prisma.JsonValue): RecruitmentItem {
+  return raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as RecruitmentItem)
+    : ({} as RecruitmentItem);
+}
+
 function isOngoingRecruitment(item: RecruitmentItem) {
   const ongoing = normalize(item.ongoingYn).toUpperCase();
   if (!ongoing) return true;
@@ -333,6 +339,70 @@ function matchesRegion(job: RecruitmentItem, resume: ResumeFormatResult) {
   if (!region || !jobRegion) return true;
   if (jobRegion.includes("전국")) return true;
   return jobRegion.includes(region);
+}
+
+type PrelimEntry = {
+  item: RecruitmentItem;
+  ruleScore: number;
+  ruleReason: string;
+};
+
+function applyRuleScoring(filtered: RecruitmentItem[], resume: ResumeFormatResult): PrelimEntry[] {
+  return filtered
+    .map((item) => ({
+      item,
+      ruleScore: computeRuleScore(item, resume),
+      ruleReason: buildRuleReason(item, resume),
+    }))
+    .sort((a, b) => {
+      if (b.ruleScore !== a.ruleScore) return b.ruleScore - a.ruleScore;
+      const aEnd = normalize(a.item.pbancEndYmd);
+      const bEnd = normalize(b.item.pbancEndYmd);
+      return aEnd.localeCompare(bEnd, "ko");
+    });
+}
+
+async function runAIBatchScoring(
+  targets: RecruitmentItem[],
+  profileSummary: string,
+  options: { chunkSize: number; batchTimeoutMs: number; totalBudgetMs: number }
+): Promise<Record<number, { matchScore: number; matchReason: string }>> {
+  const scoreMap: Record<number, { matchScore: number; matchReason: string }> = {};
+  const aiStartedAt = Date.now();
+
+  for (let i = 0; i < targets.length; i += options.chunkSize) {
+    if (Date.now() - aiStartedAt >= options.totalBudgetMs) {
+      console.warn("[recruitmentMatch] AI scoring budget exceeded", {
+        elapsedMs: Date.now() - aiStartedAt,
+        budgetMs: options.totalBudgetMs,
+        processedCount: i,
+        totalTargets: targets.length,
+      });
+      break;
+    }
+    const chunk = targets.slice(i, i + options.chunkSize);
+    const chunkScoreMap = await scoreRecruitmentsBatch(chunk, profileSummary, options.batchTimeoutMs);
+    Object.assign(scoreMap, chunkScoreMap);
+  }
+
+  return scoreMap;
+}
+
+function mergeScores(
+  prelim: PrelimEntry[],
+  scoreMap: Record<number, { matchScore: number; matchReason: string }>
+): ScoredRecruitment[] {
+  return prelim.map((entry) => {
+    const aiScore = scoreMap[entry.item.recrutPblntSn];
+    const finalScore = aiScore
+      ? Math.round(aiScore.matchScore * 0.8 + entry.ruleScore * 0.2)
+      : entry.ruleScore;
+    return {
+      ...entry.item,
+      matchScore: Math.max(0, Math.min(100, finalScore)),
+      matchReason: aiScore?.matchReason || entry.ruleReason,
+    };
+  });
 }
 
 function buildProfileSummary(resume: ResumeFormatResult, coverLetter?: CoverLetterInput) {
@@ -817,10 +887,7 @@ function mapPostingToMatchItem(
     raw: Prisma.JsonValue;
   }
 ): RecruitmentMatchItem {
-  const raw =
-    posting.raw && typeof posting.raw === "object" && !Array.isArray(posting.raw)
-      ? (posting.raw as RecruitmentItem)
-      : ({} as RecruitmentItem);
+  const raw = extractRawItem(posting.raw);
 
   return {
     ...raw,
@@ -894,11 +961,7 @@ export async function matchRecruitments(
   });
 
   const rawList: RecruitmentItem[] = postings.map((posting) => {
-    const raw =
-      posting.raw && typeof posting.raw === "object" && !Array.isArray(posting.raw)
-        ? (posting.raw as RecruitmentItem)
-        : ({} as RecruitmentItem);
-
+    const raw = extractRawItem(posting.raw);
     return {
       ...raw,
       recrutPblntSn: posting.recrutPblntSn,
@@ -926,71 +989,30 @@ export async function matchRecruitments(
     );
   });
 
-  const prelim = filtered
-    .map((item) => ({
-      item,
-      ruleScore: computeRuleScore(item, resume),
-      ruleReason: buildRuleReason(item, resume),
-    }))
-    .sort((a, b) => {
-      if (b.ruleScore !== a.ruleScore) return b.ruleScore - a.ruleScore;
-      const aEnd = normalize(a.item.pbancEndYmd);
-      const bEnd = normalize(b.item.pbancEndYmd);
-      return aEnd.localeCompare(bEnd, "ko");
-    });
+  const prelim = applyRuleScoring(filtered, resume);
 
   const profileSummary = buildProfileSummary(resume, coverLetter);
 
-  const chunkSizeFromEnv = Number(process.env.RECRUITMENT_MATCH_BATCH_LIMIT ?? "20");
-  const chunkSize =
-    Number.isFinite(chunkSizeFromEnv) && chunkSizeFromEnv > 0 ? chunkSizeFromEnv : 20;
+  const chunkSize = (() => {
+    const v = Number(process.env.RECRUITMENT_MATCH_BATCH_LIMIT ?? "20");
+    return Number.isFinite(v) && v > 0 ? v : 20;
+  })();
   const aiTargetLimit = parsePositiveInt(process.env.RECRUITMENT_MATCH_AI_TARGET_LIMIT, 60);
-  const aiBatchTimeoutMs = parsePositiveInt(
-    process.env.RECRUITMENT_MATCH_AI_BATCH_TIMEOUT_MS,
-    7000
-  );
-  const aiTotalBudgetMs = parsePositiveInt(
-    process.env.RECRUITMENT_MATCH_AI_TOTAL_BUDGET_MS,
-    15000
-  );
+  const aiBatchTimeoutMs = parsePositiveInt(process.env.RECRUITMENT_MATCH_AI_BATCH_TIMEOUT_MS, 7000);
+  const aiTotalBudgetMs = parsePositiveInt(process.env.RECRUITMENT_MATCH_AI_TOTAL_BUDGET_MS, 15000);
+
   const scoreTargetCount = Math.min(
     prelim.length,
     Math.max(safeOffset + safeLimit * 5, Math.max(aiTargetLimit, 50))
   );
   const scoreTargets = prelim.slice(0, scoreTargetCount).map((entry) => entry.item);
-  const scoreMap: Record<number, { matchScore: number; matchReason: string }> = {};
-
-  const aiStartedAt = Date.now();
-  for (let i = 0; i < scoreTargets.length; i += chunkSize) {
-    if (Date.now() - aiStartedAt >= aiTotalBudgetMs) {
-      console.warn("[recruitmentMatch] AI scoring budget exceeded", {
-        elapsedMs: Date.now() - aiStartedAt,
-        budgetMs: aiTotalBudgetMs,
-        processedCount: i,
-        totalTargets: scoreTargets.length,
-      });
-      break;
-    }
-    const chunk = scoreTargets.slice(i, i + chunkSize);
-    const chunkScoreMap = await scoreRecruitmentsBatch(
-      chunk,
-      profileSummary,
-      aiBatchTimeoutMs
-    );
-    Object.assign(scoreMap, chunkScoreMap);
-  }
-
-  const scored: ScoredRecruitment[] = prelim.map((entry) => {
-    const aiScore = scoreMap[entry.item.recrutPblntSn];
-    const finalScore = aiScore
-      ? Math.round(aiScore.matchScore * 0.8 + entry.ruleScore * 0.2)
-      : entry.ruleScore;
-    return {
-      ...entry.item,
-      matchScore: Math.max(0, Math.min(100, finalScore)),
-      matchReason: aiScore?.matchReason || entry.ruleReason,
-    };
+  const scoreMap = await runAIBatchScoring(scoreTargets, profileSummary, {
+    chunkSize,
+    batchTimeoutMs: aiBatchTimeoutMs,
+    totalBudgetMs: aiTotalBudgetMs,
   });
+
+  const scored = mergeScores(prelim, scoreMap);
 
   scored.sort((a, b) => b.matchScore - a.matchScore);
   const slice = scored.slice(safeOffset, safeOffset + safeLimit);
