@@ -11,6 +11,7 @@ import {
   normalizeGeneratedList,
   retrieveRecruitmentCandidates,
 } from "./recruitmentRag.service";
+import { syncRecruitmentPostingEmbeddings } from "./recruitmentEmbedding.service";
 
 type CoverLetterInput = {
   growthProcess?: string;
@@ -779,6 +780,11 @@ async function upsertRecruitmentsBatch(
       });
     })
   );
+
+  const embeddingResult = await syncRecruitmentPostingEmbeddings(items);
+  if (embeddingResult.attempted > 0 || embeddingResult.failed > 0) {
+    console.log("[recruitmentMatch] recruitment embeddings synced", embeddingResult);
+  }
 
   return {
     inserted: items.length - existingSet.size,

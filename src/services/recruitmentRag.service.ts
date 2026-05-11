@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { normalize } from "../common/textProcessing";
 import { prisma } from "../infra/db/prisma";
 import { ResumeFormatResult } from "./resumeFormat.service";
+import { embedRecruitmentQuery } from "./recruitmentEmbedding.service";
 
 export type RecruitmentRagSource = {
   recrutPblntSn: number;
@@ -196,6 +197,10 @@ function sortRetrievedPostings(
     .map((entry) => entry.posting);
 }
 
+function toPgVector(values: number[]) {
+  return `[${values.join(",")}]`;
+}
+
 export function normalizeGeneratedList(value: unknown, maxItems = 5): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -292,12 +297,60 @@ export async function retrieveRecruitmentCandidates(
   const mode = resolveRetrievalMode();
 
   if (mode === "vector") {
-    console.warn(
-      "[recruitmentRag] vector retrieval is not configured; falling back to keyword retrieval"
-    );
+    try {
+      const vectorResults = await retrieveRecruitmentCandidatesByVector(
+        resume,
+        safeLimit
+      );
+      if (vectorResults.length > 0) {
+        return vectorResults;
+      }
+    } catch (error) {
+      console.warn("[recruitmentRag] vector retrieval failed; falling back to keyword", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   return retrieveRecruitmentCandidatesByKeyword(resume, safeLimit);
+}
+
+async function retrieveRecruitmentCandidatesByVector(
+  resume: ResumeFormatResult,
+  limit: number
+): Promise<RecruitmentRetrievedPosting[]> {
+  const profile = buildRetrievalProfile(resume);
+  const query = profile.query || normalize(resume.desiredJob);
+  if (!query) return [];
+
+  const embedding = await embedRecruitmentQuery(query);
+  const vector = toPgVector(embedding);
+
+  return prisma.$queryRaw<RecruitmentPostingForRetrieval[]>`
+    SELECT
+      p."recrutPblntSn",
+      p."instNm",
+      p."recrutPbancTtl",
+      p."recrutSeNm",
+      p."aplyQlfcCn",
+      p."prefCn",
+      p."pbancBgngYmd",
+      p."pbancEndYmd",
+      p."ongoingYn",
+      p."ncsCdNmLst",
+      p."hireTypeNmLst",
+      p."workRgnNmLst",
+      p."acbgCondNmLst",
+      p."searchText",
+      p."raw"
+    FROM "RecruitmentPosting" p
+    JOIN "RecruitmentPostingEmbedding" e
+      ON e."recrutPblntSn" = p."recrutPblntSn"
+    WHERE p."isActive" = true
+      AND p."isOngoing" = true
+    ORDER BY e."embedding" <=> ${vector}::vector
+    LIMIT ${limit}
+  `;
 }
 
 async function retrieveRecruitmentCandidatesByKeyword(
