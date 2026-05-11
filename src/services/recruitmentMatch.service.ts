@@ -68,6 +68,8 @@ type RecruitmentItem = {
 type ScoredRecruitment = RecruitmentItem & {
   matchScore: number;
   matchReason: string;
+  retrievedEvidence: string[];
+  coverLetterTips: string[];
 };
 
 export type RecruitmentMatchItem = ScoredRecruitment & {
@@ -139,6 +141,14 @@ let syncInFlight: Promise<RecruitmentSyncResult> | null = null;
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength)}...`;
+}
+
+function normalizeStringList(value: unknown, maxItems = 5): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => normalize(item))
+    .filter(Boolean)
+    .slice(0, maxItems);
 }
 
 function splitCsv(value: unknown) {
@@ -345,7 +355,56 @@ type PrelimEntry = {
   item: RecruitmentItem;
   ruleScore: number;
   ruleReason: string;
+  retrievedEvidence: string[];
+  coverLetterTips: string[];
 };
+
+function buildRetrievedEvidence(job: RecruitmentItem): string[] {
+  const evidence = [
+    normalize(job.instNm) ? `기관: ${normalize(job.instNm)}` : "",
+    normalize(job.recrutPbancTtl) ? `공고명: ${normalize(job.recrutPbancTtl)}` : "",
+    normalize(job.recrutSeNm) ? `채용구분: ${normalize(job.recrutSeNm)}` : "",
+    normalize(job.ncsCdNmLst) ? `직무/분야: ${normalize(job.ncsCdNmLst)}` : "",
+    normalize(job.workRgnNmLst) ? `근무지역: ${normalize(job.workRgnNmLst)}` : "",
+    normalize(job.acbgCondNmLst) ? `학력조건: ${normalize(job.acbgCondNmLst)}` : "",
+    normalize(job.aplyQlfcCn)
+      ? `자격요건: ${truncateText(normalize(job.aplyQlfcCn), 180)}`
+      : "",
+    normalize(job.prefCn)
+      ? `우대사항: ${truncateText(normalize(job.prefCn), 180)}`
+      : "",
+  ].filter(Boolean);
+
+  return evidence.slice(0, 6);
+}
+
+function buildFallbackCoverLetterTips(
+  job: RecruitmentItem,
+  resume: ResumeFormatResult
+): string[] {
+  const tips: string[] = [];
+  const desiredJob = normalize(resume.desiredJob);
+  const title = normalize(job.recrutPbancTtl);
+  const qualification = normalize(job.aplyQlfcCn);
+  const preference = normalize(job.prefCn);
+
+  if (desiredJob || title) {
+    tips.push(
+      `${desiredJob || title}와 직접 연결되는 경험을 첫 문단에서 명확히 제시하세요.`
+    );
+  }
+  if (qualification) {
+    tips.push("자격요건에 맞는 경력, 교육, 자격증을 본문에서 구체적으로 연결하세요.");
+  }
+  if (preference) {
+    tips.push("우대사항과 겹치는 경험이 있다면 역할, 행동, 결과 순서로 보강하세요.");
+  }
+  if (tips.length === 0) {
+    tips.push("공고의 직무명과 본인의 핵심 경험이 연결되도록 지원동기를 작성하세요.");
+  }
+
+  return tips.slice(0, 3);
+}
 
 function applyRuleScoring(filtered: RecruitmentItem[], resume: ResumeFormatResult): PrelimEntry[] {
   return filtered
@@ -353,6 +412,8 @@ function applyRuleScoring(filtered: RecruitmentItem[], resume: ResumeFormatResul
       item,
       ruleScore: computeRuleScore(item, resume),
       ruleReason: buildRuleReason(item, resume),
+      retrievedEvidence: buildRetrievedEvidence(item),
+      coverLetterTips: buildFallbackCoverLetterTips(item, resume),
     }))
     .sort((a, b) => {
       if (b.ruleScore !== a.ruleScore) return b.ruleScore - a.ruleScore;
@@ -366,8 +427,26 @@ async function runAIBatchScoring(
   targets: RecruitmentItem[],
   profileSummary: string,
   options: { chunkSize: number; batchTimeoutMs: number; totalBudgetMs: number }
-): Promise<Record<number, { matchScore: number; matchReason: string }>> {
-  const scoreMap: Record<number, { matchScore: number; matchReason: string }> = {};
+): Promise<
+  Record<
+    number,
+    {
+      matchScore: number;
+      matchReason: string;
+      retrievedEvidence: string[];
+      coverLetterTips: string[];
+    }
+  >
+> {
+  const scoreMap: Record<
+    number,
+    {
+      matchScore: number;
+      matchReason: string;
+      retrievedEvidence: string[];
+      coverLetterTips: string[];
+    }
+  > = {};
   const aiStartedAt = Date.now();
 
   for (let i = 0; i < targets.length; i += options.chunkSize) {
@@ -390,7 +469,15 @@ async function runAIBatchScoring(
 
 function mergeScores(
   prelim: PrelimEntry[],
-  scoreMap: Record<number, { matchScore: number; matchReason: string }>
+  scoreMap: Record<
+    number,
+    {
+      matchScore: number;
+      matchReason: string;
+      retrievedEvidence: string[];
+      coverLetterTips: string[];
+    }
+  >
 ): ScoredRecruitment[] {
   return prelim.map((entry) => {
     const aiScore = scoreMap[entry.item.recrutPblntSn];
@@ -401,6 +488,14 @@ function mergeScores(
       ...entry.item,
       matchScore: Math.max(0, Math.min(100, finalScore)),
       matchReason: aiScore?.matchReason || entry.ruleReason,
+      retrievedEvidence:
+        aiScore?.retrievedEvidence.length
+          ? aiScore.retrievedEvidence
+          : entry.retrievedEvidence,
+      coverLetterTips:
+        aiScore?.coverLetterTips.length
+          ? aiScore.coverLetterTips
+          : entry.coverLetterTips,
     };
   });
 }
@@ -449,7 +544,17 @@ async function scoreRecruitmentsBatch(
   jobs: RecruitmentItem[],
   profileSummary: string,
   timeoutMs?: number
-): Promise<Record<number, { matchScore: number; matchReason: string }>> {
+): Promise<
+  Record<
+    number,
+    {
+      matchScore: number;
+      matchReason: string;
+      retrievedEvidence: string[];
+      coverLetterTips: string[];
+    }
+  >
+> {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   const systemPrompt = `
 너는 채용 공고와 지원자 정보를 비교해 적합도를 평가하는 AI다.
@@ -460,7 +565,9 @@ async function scoreRecruitmentsBatch(
     {
       "recrutPblntSn": number,
       "matchScore": number,
-      "matchReason": string
+      "matchReason": string,
+      "retrievedEvidence": string[],
+      "coverLetterTips": string[]
     }
   ]
 }
@@ -470,6 +577,9 @@ async function scoreRecruitmentsBatch(
 - matchReason은 1~2문장으로 간단히.
 - 과장하지 말고 입력 정보에 근거해서 판단.
 - 출력 항목은 입력된 공고 리스트에 대해서만 작성한다.
+- retrievedEvidence는 입력된 evidenceCandidates 중 지원자 적합도 판단에 직접 사용한 근거만 2~4개 선택한다.
+- coverLetterTips는 해당 공고에 맞춰 자기소개서에서 강조할 포인트를 2~3개 작성한다.
+- retrievedEvidence에 입력에 없는 사실을 새로 만들지 않는다.
 `;
 
   const jobSummaries = jobs.map((job) => ({
@@ -478,9 +588,15 @@ async function scoreRecruitmentsBatch(
     title: normalize(job.recrutPbancTtl),
     recruitType: normalize(job.recrutSeNm),
     region: normalize(job.workRgnNmLst),
+    field: normalize(job.ncsCdNmLst),
+    education: normalize(job.acbgCondNmLst),
     qualification: truncateText(normalize(job.aplyQlfcCn), 300),
     preference: truncateText(normalize(job.prefCn), 200),
+    evidenceCandidates: buildRetrievedEvidence(job),
   }));
+  const evidenceCandidatesBySn = new Map(
+    jobSummaries.map((job) => [job.recrutPblntSn, job.evidenceCandidates])
+  );
 
   const userPrompt = `지원자 정보:\n${profileSummary}\n\n공고 목록(JSON):\n${JSON.stringify(
     jobSummaries
@@ -503,17 +619,30 @@ async function scoreRecruitmentsBatch(
     const cleaned = stripCodeFence(text);
     const parsed = JSON.parse(cleaned);
     const items = Array.isArray(parsed?.items) ? parsed.items : [];
-    const resultMap: Record<number, { matchScore: number; matchReason: string }> =
-      {};
+    const resultMap: Record<
+      number,
+      {
+        matchScore: number;
+        matchReason: string;
+        retrievedEvidence: string[];
+        coverLetterTips: string[];
+      }
+    > = {};
     for (const item of items) {
       const sn = Number(item?.recrutPblntSn);
       if (!Number.isFinite(sn)) continue;
       const score = Number(item?.matchScore);
+      const evidenceCandidates = evidenceCandidatesBySn.get(sn) ?? [];
+      const selectedEvidence = normalizeStringList(item?.retrievedEvidence, 4).filter(
+        (evidence) => evidenceCandidates.includes(evidence)
+      );
       resultMap[sn] = {
         matchScore: Number.isFinite(score)
           ? Math.max(0, Math.min(100, score))
           : 0,
         matchReason: normalize(item?.matchReason),
+        retrievedEvidence: selectedEvidence,
+        coverLetterTips: normalizeStringList(item?.coverLetterTips, 3),
       };
     }
     return resultMap;
@@ -906,6 +1035,20 @@ function mapPostingToMatchItem(
     acbgCondNmLst: posting.acbgCondNmLst,
     matchScore: 0,
     matchReason: "",
+    retrievedEvidence: buildRetrievedEvidence({
+      ...raw,
+      recrutPblntSn: posting.recrutPblntSn,
+      instNm: posting.instNm,
+      recrutPbancTtl: posting.recrutPbancTtl,
+      recrutSeNm: posting.recrutSeNm,
+      aplyQlfcCn: posting.aplyQlfcCn,
+      prefCn: posting.prefCn,
+      ncsCdNmLst: posting.ncsCdNmLst,
+      hireTypeNmLst: posting.hireTypeNmLst,
+      workRgnNmLst: posting.workRgnNmLst,
+      acbgCondNmLst: posting.acbgCondNmLst,
+    }),
+    coverLetterTips: [],
     ncsCdNmList: posting.ncsCdNmList,
     hireTypeNmList: posting.hireTypeNmList,
     workRgnNmList: posting.workRgnNmList,
