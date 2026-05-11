@@ -3,6 +3,13 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../infra/db/prisma";
 import { ResumeFormatResult } from "./resumeFormat.service";
 import { stripCodeFence, normalize } from "../common/textProcessing";
+import {
+  buildFallbackCoverLetterTips,
+  buildRecruitmentEvidence,
+  buildRecruitmentPromptDocument,
+  filterRetrievedEvidence,
+  normalizeGeneratedList,
+} from "./recruitmentRag.service";
 
 type CoverLetterInput = {
   growthProcess?: string;
@@ -141,14 +148,6 @@ let syncInFlight: Promise<RecruitmentSyncResult> | null = null;
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength)}...`;
-}
-
-function normalizeStringList(value: unknown, maxItems = 5): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => normalize(item))
-    .filter(Boolean)
-    .slice(0, maxItems);
 }
 
 function splitCsv(value: unknown) {
@@ -359,60 +358,13 @@ type PrelimEntry = {
   coverLetterTips: string[];
 };
 
-function buildRetrievedEvidence(job: RecruitmentItem): string[] {
-  const evidence = [
-    normalize(job.instNm) ? `기관: ${normalize(job.instNm)}` : "",
-    normalize(job.recrutPbancTtl) ? `공고명: ${normalize(job.recrutPbancTtl)}` : "",
-    normalize(job.recrutSeNm) ? `채용구분: ${normalize(job.recrutSeNm)}` : "",
-    normalize(job.ncsCdNmLst) ? `직무/분야: ${normalize(job.ncsCdNmLst)}` : "",
-    normalize(job.workRgnNmLst) ? `근무지역: ${normalize(job.workRgnNmLst)}` : "",
-    normalize(job.acbgCondNmLst) ? `학력조건: ${normalize(job.acbgCondNmLst)}` : "",
-    normalize(job.aplyQlfcCn)
-      ? `자격요건: ${truncateText(normalize(job.aplyQlfcCn), 180)}`
-      : "",
-    normalize(job.prefCn)
-      ? `우대사항: ${truncateText(normalize(job.prefCn), 180)}`
-      : "",
-  ].filter(Boolean);
-
-  return evidence.slice(0, 6);
-}
-
-function buildFallbackCoverLetterTips(
-  job: RecruitmentItem,
-  resume: ResumeFormatResult
-): string[] {
-  const tips: string[] = [];
-  const desiredJob = normalize(resume.desiredJob);
-  const title = normalize(job.recrutPbancTtl);
-  const qualification = normalize(job.aplyQlfcCn);
-  const preference = normalize(job.prefCn);
-
-  if (desiredJob || title) {
-    tips.push(
-      `${desiredJob || title}와 직접 연결되는 경험을 첫 문단에서 명확히 제시하세요.`
-    );
-  }
-  if (qualification) {
-    tips.push("자격요건에 맞는 경력, 교육, 자격증을 본문에서 구체적으로 연결하세요.");
-  }
-  if (preference) {
-    tips.push("우대사항과 겹치는 경험이 있다면 역할, 행동, 결과 순서로 보강하세요.");
-  }
-  if (tips.length === 0) {
-    tips.push("공고의 직무명과 본인의 핵심 경험이 연결되도록 지원동기를 작성하세요.");
-  }
-
-  return tips.slice(0, 3);
-}
-
 function applyRuleScoring(filtered: RecruitmentItem[], resume: ResumeFormatResult): PrelimEntry[] {
   return filtered
     .map((item) => ({
       item,
       ruleScore: computeRuleScore(item, resume),
       ruleReason: buildRuleReason(item, resume),
-      retrievedEvidence: buildRetrievedEvidence(item),
+      retrievedEvidence: buildRecruitmentEvidence(item),
       coverLetterTips: buildFallbackCoverLetterTips(item, resume),
     }))
     .sort((a, b) => {
@@ -582,18 +534,7 @@ async function scoreRecruitmentsBatch(
 - retrievedEvidence에 입력에 없는 사실을 새로 만들지 않는다.
 `;
 
-  const jobSummaries = jobs.map((job) => ({
-    recrutPblntSn: job.recrutPblntSn,
-    instNm: normalize(job.instNm),
-    title: normalize(job.recrutPbancTtl),
-    recruitType: normalize(job.recrutSeNm),
-    region: normalize(job.workRgnNmLst),
-    field: normalize(job.ncsCdNmLst),
-    education: normalize(job.acbgCondNmLst),
-    qualification: truncateText(normalize(job.aplyQlfcCn), 300),
-    preference: truncateText(normalize(job.prefCn), 200),
-    evidenceCandidates: buildRetrievedEvidence(job),
-  }));
+  const jobSummaries = jobs.map(buildRecruitmentPromptDocument);
   const evidenceCandidatesBySn = new Map(
     jobSummaries.map((job) => [job.recrutPblntSn, job.evidenceCandidates])
   );
@@ -633,8 +574,10 @@ async function scoreRecruitmentsBatch(
       if (!Number.isFinite(sn)) continue;
       const score = Number(item?.matchScore);
       const evidenceCandidates = evidenceCandidatesBySn.get(sn) ?? [];
-      const selectedEvidence = normalizeStringList(item?.retrievedEvidence, 4).filter(
-        (evidence) => evidenceCandidates.includes(evidence)
+      const selectedEvidence = filterRetrievedEvidence(
+        item?.retrievedEvidence,
+        evidenceCandidates,
+        4
       );
       resultMap[sn] = {
         matchScore: Number.isFinite(score)
@@ -642,7 +585,7 @@ async function scoreRecruitmentsBatch(
           : 0,
         matchReason: normalize(item?.matchReason),
         retrievedEvidence: selectedEvidence,
-        coverLetterTips: normalizeStringList(item?.coverLetterTips, 3),
+        coverLetterTips: normalizeGeneratedList(item?.coverLetterTips, 3),
       };
     }
     return resultMap;
@@ -1035,7 +978,7 @@ function mapPostingToMatchItem(
     acbgCondNmLst: posting.acbgCondNmLst,
     matchScore: 0,
     matchReason: "",
-    retrievedEvidence: buildRetrievedEvidence({
+    retrievedEvidence: buildRecruitmentEvidence({
       ...raw,
       recrutPblntSn: posting.recrutPblntSn,
       instNm: posting.instNm,
