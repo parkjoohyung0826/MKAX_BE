@@ -72,9 +72,13 @@ export async function embedRecruitmentQuery(text: string): Promise<number[]> {
 }
 
 export async function syncRecruitmentPostingEmbeddings(
-  sources: RecruitmentRagSource[]
+  sources: RecruitmentRagSource[],
+  options: { force?: boolean } = {}
 ) {
-  if (!shouldSyncRecruitmentEmbeddings() || sources.length === 0) {
+  if (
+    (!options.force && !shouldSyncRecruitmentEmbeddings()) ||
+    sources.length === 0
+  ) {
     return { attempted: 0, skipped: sources.length, upserted: 0, failed: 0 };
   }
 
@@ -143,4 +147,86 @@ export async function syncRecruitmentPostingEmbeddings(
   }
 
   return { attempted, skipped, upserted, failed };
+}
+
+export async function backfillRecruitmentPostingEmbeddings(limit = 100) {
+  const safeLimit = Number.isFinite(limit)
+    ? Math.max(1, Math.min(Math.floor(limit), 500))
+    : 100;
+
+  const postings = await prisma.recruitmentPosting.findMany({
+    where: {
+      isActive: true,
+      isOngoing: true,
+    },
+    take: safeLimit,
+    orderBy: [
+      { updatedAt: "desc" },
+      { pbancEndYmd: "asc" },
+      { recrutPblntSn: "desc" },
+    ],
+    select: {
+      recrutPblntSn: true,
+      instNm: true,
+      recrutPbancTtl: true,
+      recrutSeNm: true,
+      ncsCdNmLst: true,
+      hireTypeNmLst: true,
+      workRgnNmLst: true,
+      acbgCondNmLst: true,
+      aplyQlfcCn: true,
+      prefCn: true,
+    },
+  });
+
+  const result = await syncRecruitmentPostingEmbeddings(postings, {
+    force: true,
+  });
+
+  return {
+    selected: postings.length,
+    ...result,
+  };
+}
+
+export async function getRecruitmentEmbeddingStatus() {
+  const activePostingCount = await prisma.recruitmentPosting.count({
+    where: {
+      isActive: true,
+      isOngoing: true,
+    },
+  });
+
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{ embeddingCount: bigint | number }>
+    >`
+      SELECT COUNT(*)::bigint AS "embeddingCount"
+      FROM "RecruitmentPostingEmbedding" e
+      JOIN "RecruitmentPosting" p
+        ON p."recrutPblntSn" = e."recrutPblntSn"
+      WHERE p."isActive" = true
+        AND p."isOngoing" = true
+    `;
+    const embeddingCount = Number(rows[0]?.embeddingCount ?? 0);
+
+    return {
+      pgvectorReady: true,
+      activePostingCount,
+      embeddingCount,
+      missingEmbeddingCount: Math.max(activePostingCount - embeddingCount, 0),
+      retrievalMode: process.env.RECRUITMENT_RETRIEVAL_MODE || "keyword",
+      embeddingModel: GEMINI_EMBEDDING_MODEL,
+    };
+  } catch (error) {
+    return {
+      pgvectorReady: false,
+      activePostingCount,
+      embeddingCount: 0,
+      missingEmbeddingCount: activePostingCount,
+      retrievalMode: process.env.RECRUITMENT_RETRIEVAL_MODE || "keyword",
+      embeddingModel: GEMINI_EMBEDDING_MODEL,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

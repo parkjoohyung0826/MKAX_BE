@@ -10,6 +10,10 @@ import {
   syncRecruitmentPostings,
 } from "../services/recruitmentMatch.service";
 import {
+  backfillRecruitmentPostingEmbeddings,
+  getRecruitmentEmbeddingStatus,
+} from "../services/recruitmentEmbedding.service";
+import {
   formatResumeFromExtractedText,
   ResumeFormatResult,
 } from "../services/resumeFormat.service";
@@ -46,6 +50,9 @@ const ListRecruitmentsQuerySchema = z.object({
 });
 const RecruitmentFiltersQuerySchema = z.object({
   includeClosed: booleanLikeQuerySchema,
+});
+const BackfillEmbeddingsSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 export const matchRecruitmentsController = withControllerErrorHandling(
@@ -168,3 +175,25 @@ export const recruitmentFilterOptionsController = withControllerErrorHandling(
   },
   "recruitmentFilterOptionsController"
 );
+
+export const recruitmentEmbeddingStatusController = withControllerErrorHandling(
+  async (_req: Request, res: Response) => {
+    const result = await getRecruitmentEmbeddingStatus();
+    return res.status(200).json(result);
+  },
+  "recruitmentEmbeddingStatusController"
+);
+
+export const backfillRecruitmentEmbeddingsController =
+  withControllerErrorHandling(async (req: Request, res: Response) => {
+    const bodyData = parseRequestBody(BackfillEmbeddingsSchema, req, res);
+    if (!bodyData) return;
+
+    const result = await backfillRecruitmentPostingEmbeddings(
+      bodyData.limit ?? 100
+    );
+    return res.status(200).json({
+      message: "Recruitment posting embeddings backfilled.",
+      result,
+    });
+  }, "backfillRecruitmentEmbeddingsController");
