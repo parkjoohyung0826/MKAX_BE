@@ -48,6 +48,35 @@ export type RecruitmentRetrievedPosting = {
   raw: Prisma.JsonValue;
 };
 
+type RecruitmentRetrievalProfile = {
+  query: string;
+  desiredJob: string;
+  queryTerms: string[];
+  desiredJobTerms: string[];
+};
+
+const recruitmentPostingSelect = {
+  recrutPblntSn: true,
+  instNm: true,
+  recrutPbancTtl: true,
+  recrutSeNm: true,
+  aplyQlfcCn: true,
+  prefCn: true,
+  pbancBgngYmd: true,
+  pbancEndYmd: true,
+  ongoingYn: true,
+  ncsCdNmLst: true,
+  hireTypeNmLst: true,
+  workRgnNmLst: true,
+  acbgCondNmLst: true,
+  searchText: true,
+  raw: true,
+} satisfies Prisma.RecruitmentPostingSelect;
+
+type RecruitmentPostingForRetrieval = Prisma.RecruitmentPostingGetPayload<{
+  select: typeof recruitmentPostingSelect;
+}>;
+
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength)}...`;
@@ -100,6 +129,71 @@ function resolveRetrievalMode(): RecruitmentRetrievalMode {
   return process.env.RECRUITMENT_RETRIEVAL_MODE === "vector"
     ? "vector"
     : "keyword";
+}
+
+function buildRetrievalProfile(resume: ResumeFormatResult): RecruitmentRetrievalProfile {
+  const query = buildRecruitmentRetrievalQuery(resume);
+  const desiredJob = normalize(resume.desiredJob).toLowerCase();
+
+  return {
+    query,
+    desiredJob,
+    queryTerms: tokenizeRetrievalText(query, 16),
+    desiredJobTerms: tokenizeRetrievalText(desiredJob, 8),
+  };
+}
+
+function countTermHits(text: string, terms: string[]) {
+  if (terms.length === 0) return 0;
+  const target = normalize(text).toLowerCase();
+  let hits = 0;
+  for (const term of terms) {
+    if (target.includes(term)) hits += 1;
+  }
+  return hits;
+}
+
+function computeKeywordRetrievalScore(
+  posting: RecruitmentPostingForRetrieval,
+  profile: RecruitmentRetrievalProfile
+) {
+  const title = normalize(posting.recrutPbancTtl);
+  const field = normalize(posting.ncsCdNmLst);
+  const qualification = normalize(posting.aplyQlfcCn);
+  const preference = normalize(posting.prefCn);
+  const searchText = normalize(posting.searchText);
+
+  let score = 0;
+  score += countTermHits(title, profile.desiredJobTerms) * 12;
+  score += countTermHits(field, profile.desiredJobTerms) * 10;
+  score += countTermHits(qualification, profile.desiredJobTerms) * 6;
+  score += countTermHits(preference, profile.desiredJobTerms) * 4;
+  score += countTermHits(searchText, profile.queryTerms) * 2;
+
+  if (profile.desiredJob && `${title} ${field}`.toLowerCase().includes(profile.desiredJob)) {
+    score += 20;
+  }
+
+  return score;
+}
+
+function sortRetrievedPostings(
+  postings: RecruitmentPostingForRetrieval[],
+  profile: RecruitmentRetrievalProfile
+) {
+  return postings
+    .map((posting) => ({
+      posting,
+      score: computeKeywordRetrievalScore(posting, profile),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const aEnd = normalize(a.posting.pbancEndYmd);
+      const bEnd = normalize(b.posting.pbancEndYmd);
+      if (aEnd !== bEnd) return aEnd.localeCompare(bEnd, "ko");
+      return b.posting.recrutPblntSn - a.posting.recrutPblntSn;
+    })
+    .map((entry) => entry.posting);
 }
 
 export function normalizeGeneratedList(value: unknown, maxItems = 5): string[] {
@@ -210,8 +304,9 @@ async function retrieveRecruitmentCandidatesByKeyword(
   resume: ResumeFormatResult,
   limit: number
 ): Promise<RecruitmentRetrievedPosting[]> {
-  const query = buildRecruitmentRetrievalQuery(resume);
-  const terms = tokenizeRetrievalText(query);
+  const profile = buildRetrievalProfile(resume);
+  const terms = profile.queryTerms;
+  const fetchLimit = Math.min(Math.max(limit * 3, limit), 5000);
   const where: Prisma.RecruitmentPostingWhereInput = {
     isActive: true,
     isOngoing: true,
@@ -227,35 +322,20 @@ async function retrieveRecruitmentCandidatesByKeyword(
 
   const postings = await prisma.recruitmentPosting.findMany({
     where,
-    take: limit,
+    take: fetchLimit,
     orderBy: [
       { updatedAt: "desc" },
       { pbancEndYmd: "asc" },
       { recrutPblntSn: "desc" },
     ],
-    select: {
-      recrutPblntSn: true,
-      instNm: true,
-      recrutPbancTtl: true,
-      recrutSeNm: true,
-      aplyQlfcCn: true,
-      prefCn: true,
-      pbancBgngYmd: true,
-      pbancEndYmd: true,
-      ongoingYn: true,
-      ncsCdNmLst: true,
-      hireTypeNmLst: true,
-      workRgnNmLst: true,
-      acbgCondNmLst: true,
-      raw: true,
-    },
+    select: recruitmentPostingSelect,
   });
 
   if (postings.length > 0 || terms.length === 0) {
-    return postings;
+    return sortRetrievedPostings(postings, profile).slice(0, limit);
   }
 
-  return prisma.recruitmentPosting.findMany({
+  const fallbackPostings = await prisma.recruitmentPosting.findMany({
     where: {
       isActive: true,
       isOngoing: true,
@@ -266,21 +346,8 @@ async function retrieveRecruitmentCandidatesByKeyword(
       { pbancEndYmd: "asc" },
       { recrutPblntSn: "desc" },
     ],
-    select: {
-      recrutPblntSn: true,
-      instNm: true,
-      recrutPbancTtl: true,
-      recrutSeNm: true,
-      aplyQlfcCn: true,
-      prefCn: true,
-      pbancBgngYmd: true,
-      pbancEndYmd: true,
-      ongoingYn: true,
-      ncsCdNmLst: true,
-      hireTypeNmLst: true,
-      workRgnNmLst: true,
-      acbgCondNmLst: true,
-      raw: true,
-    },
+    select: recruitmentPostingSelect,
   });
+
+  return fallbackPostings;
 }
