@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { normalize } from "../common/textProcessing";
+import { prisma } from "../infra/db/prisma";
 import { ResumeFormatResult } from "./resumeFormat.service";
 
 export type RecruitmentRagSource = {
@@ -27,9 +29,77 @@ export type RecruitmentPromptDocument = {
   evidenceCandidates: string[];
 };
 
+export type RecruitmentRetrievalMode = "keyword" | "vector";
+
+export type RecruitmentRetrievedPosting = {
+  recrutPblntSn: number;
+  instNm: string;
+  recrutPbancTtl: string;
+  recrutSeNm: string;
+  aplyQlfcCn: string;
+  prefCn: string;
+  pbancBgngYmd: string | null;
+  pbancEndYmd: string | null;
+  ongoingYn: string | null;
+  ncsCdNmLst: string;
+  hireTypeNmLst: string;
+  workRgnNmLst: string;
+  acbgCondNmLst: string;
+  raw: Prisma.JsonValue;
+};
+
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength)}...`;
+}
+
+function tokenizeRetrievalText(value: string, max = 12): string[] {
+  const seen = new Set<string>();
+  const tokens = normalize(value)
+    .toLowerCase()
+    .split(/[\s,./()\-_[\]{}|:;'"`~!@#$%^&*+=?<>\\]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+
+  for (const token of tokens) {
+    seen.add(token);
+    if (seen.size >= max) break;
+  }
+
+  return Array.from(seen);
+}
+
+function buildRecruitmentRetrievalQuery(resume: ResumeFormatResult): string {
+  const education = resume.education
+    .map((item) => `${item.schoolName} ${item.major} ${item.details}`)
+    .join(" ");
+  const work = resume.workExperience
+    .map((item) => `${item.companyName} ${item.mainTask}`)
+    .join(" ");
+  const competencies = resume.coreCompetencies
+    .map((item) => item.fullDescription)
+    .join(" ");
+  const certifications = resume.certifications
+    .map((item) => `${item.certificationName} ${item.institution}`)
+    .join(" ");
+
+  return [
+    resume.desiredJob,
+    resume.address,
+    education,
+    work,
+    competencies,
+    certifications,
+  ]
+    .map(normalize)
+    .filter(Boolean)
+    .join(" ");
+}
+
+function resolveRetrievalMode(): RecruitmentRetrievalMode {
+  return process.env.RECRUITMENT_RETRIEVAL_MODE === "vector"
+    ? "vector"
+    : "keyword";
 }
 
 export function normalizeGeneratedList(value: unknown, maxItems = 5): string[] {
@@ -118,4 +188,99 @@ export function buildFallbackCoverLetterTips(
   }
 
   return tips.slice(0, 3);
+}
+
+export async function retrieveRecruitmentCandidates(
+  resume: ResumeFormatResult,
+  limit: number
+): Promise<RecruitmentRetrievedPosting[]> {
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1000;
+  const mode = resolveRetrievalMode();
+
+  if (mode === "vector") {
+    console.warn(
+      "[recruitmentRag] vector retrieval is not configured; falling back to keyword retrieval"
+    );
+  }
+
+  return retrieveRecruitmentCandidatesByKeyword(resume, safeLimit);
+}
+
+async function retrieveRecruitmentCandidatesByKeyword(
+  resume: ResumeFormatResult,
+  limit: number
+): Promise<RecruitmentRetrievedPosting[]> {
+  const query = buildRecruitmentRetrievalQuery(resume);
+  const terms = tokenizeRetrievalText(query);
+  const where: Prisma.RecruitmentPostingWhereInput = {
+    isActive: true,
+    isOngoing: true,
+  };
+
+  if (terms.length > 0) {
+    where.OR = terms.flatMap((term) => [
+      { recrutPbancTtl: { contains: term, mode: "insensitive" } },
+      { instNm: { contains: term, mode: "insensitive" } },
+      { searchText: { contains: term, mode: "insensitive" } },
+    ]);
+  }
+
+  const postings = await prisma.recruitmentPosting.findMany({
+    where,
+    take: limit,
+    orderBy: [
+      { updatedAt: "desc" },
+      { pbancEndYmd: "asc" },
+      { recrutPblntSn: "desc" },
+    ],
+    select: {
+      recrutPblntSn: true,
+      instNm: true,
+      recrutPbancTtl: true,
+      recrutSeNm: true,
+      aplyQlfcCn: true,
+      prefCn: true,
+      pbancBgngYmd: true,
+      pbancEndYmd: true,
+      ongoingYn: true,
+      ncsCdNmLst: true,
+      hireTypeNmLst: true,
+      workRgnNmLst: true,
+      acbgCondNmLst: true,
+      raw: true,
+    },
+  });
+
+  if (postings.length > 0 || terms.length === 0) {
+    return postings;
+  }
+
+  return prisma.recruitmentPosting.findMany({
+    where: {
+      isActive: true,
+      isOngoing: true,
+    },
+    take: limit,
+    orderBy: [
+      { updatedAt: "desc" },
+      { pbancEndYmd: "asc" },
+      { recrutPblntSn: "desc" },
+    ],
+    select: {
+      recrutPblntSn: true,
+      instNm: true,
+      recrutPbancTtl: true,
+      recrutSeNm: true,
+      aplyQlfcCn: true,
+      prefCn: true,
+      pbancBgngYmd: true,
+      pbancEndYmd: true,
+      ongoingYn: true,
+      ncsCdNmLst: true,
+      hireTypeNmLst: true,
+      workRgnNmLst: true,
+      acbgCondNmLst: true,
+      raw: true,
+    },
+  });
 }

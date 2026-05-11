@@ -9,6 +9,7 @@ import {
   buildRecruitmentPromptDocument,
   filterRetrievedEvidence,
   normalizeGeneratedList,
+  retrieveRecruitmentCandidates,
 } from "./recruitmentRag.service";
 
 type CoverLetterInput = {
@@ -1017,34 +1018,7 @@ export async function matchRecruitments(
     Math.min(Math.max(minRows * 5, 1000), Math.max(candidateLimitFromEnv, 200))
   );
 
-  const postings = await prisma.recruitmentPosting.findMany({
-    where: {
-      isActive: true,
-      isOngoing: true,
-    },
-    take: candidateLimit,
-    orderBy: [
-      { updatedAt: "desc" },
-      { pbancEndYmd: "asc" },
-      { recrutPblntSn: "desc" },
-    ],
-    select: {
-      recrutPblntSn: true,
-      instNm: true,
-      recrutPbancTtl: true,
-      recrutSeNm: true,
-      aplyQlfcCn: true,
-      prefCn: true,
-      pbancBgngYmd: true,
-      pbancEndYmd: true,
-      ongoingYn: true,
-      ncsCdNmLst: true,
-      hireTypeNmLst: true,
-      workRgnNmLst: true,
-      acbgCondNmLst: true,
-      raw: true,
-    },
-  });
+  const postings = await retrieveRecruitmentCandidates(resume, candidateLimit);
 
   const rawList: RecruitmentItem[] = postings.map((posting) => {
     const raw = extractRawItem(posting.raw);
